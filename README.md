@@ -8,6 +8,7 @@
   [![Android APK build](https://github.com/Sharkelot/Mobile-goblin/actions/workflows/apk.yml/badge.svg)](https://github.com/Sharkelot/Mobile-goblin/actions/workflows/apk.yml)
   [![Android 8.0+](https://img.shields.io/badge/Android-8.0%2B-3DDC84?logo=android&logoColor=white)](MOBILE_GOBLIN.md)
   [![License: MIT](https://img.shields.io/badge/license-MIT-33B86B)](LICENSE)
+  <a href="https://slint.dev/"><img src="https://raw.githubusercontent.com/slint-ui/slint/master/logo/MadeWithSlint-logo-whitebg.png" alt="Made with Slint" width="120"></a>
 </div>
 
 Mobile Goblin is a native Android companion for a running [Hermes Agent](https://github.com/NousResearch/hermes-agent) dashboard. It connects to the same gateway you use on your desktop, so your chats, sessions and approvals follow you to your phone. It has its own package name (`com.sharkelot.mobilegoblin`) and installs beside Kyllene.
@@ -58,4 +59,4 @@ See [the Rust migration notes](docs/rust-migration.md) and [feature coverage](do
 
 ## Upstream and license
 
-Mobile Goblin is based on [Kyllene](https://github.com/Giton22/kyllene), which provides the Hermes gateway client and Android feature foundation. The original project is MIT licensed; its license and attribution remain in [LICENSE](LICENSE). Mobile Goblin's branding and goblin artwork are specific to this fork. Hermes Agent is a Nous Research project; Mobile Goblin is an independent companion app.
+Mobile Goblin is based on [Kyllene](https://github.com/Giton22/kyllene), which provides the Hermes gateway client and Android feature foundation. The original project is MIT licensed; its license and attribution remain in [LICENSE](LICENSE). The Rust UI uses Slint under its royalty-free mobile license; see [third-party licensing](docs/third-party-licenses.md). Mobile Goblin's branding and goblin artwork are specific to this fork. Hermes Agent is a Nous Research project; Mobile Goblin is an independent companion app.
