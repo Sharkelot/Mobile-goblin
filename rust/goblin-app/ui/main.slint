@@ -144,7 +144,16 @@ export component MainWindow inherits Window {
             changed keyboard-height => {
                 if (password.has-focus) {
                     login-scroll.content-y = max(min(0px, login-scroll.visible-height - login-form.height),
-                        min(0px, login-scroll.visible-height - password.y - password.height - 20px));
+                        min(0px, login-scroll.visible-height - connect-button.y - connect-button.height - 20px));
+                } else if (username.has-focus) {
+                    login-scroll.content-y = max(min(0px, login-scroll.visible-height - login-form.height),
+                        min(0px, login-scroll.visible-height - username.y - username.height - 20px));
+                }
+            }
+            changed visible-height => {
+                if (password.has-focus) {
+                    login-scroll.content-y = max(min(0px, login-scroll.visible-height - login-form.height),
+                        min(0px, login-scroll.visible-height - connect-button.y - connect-button.height - 20px));
                 } else if (username.has-focus) {
                     login-scroll.content-y = max(min(0px, login-scroll.visible-height - login-form.height),
                         min(0px, login-scroll.visible-height - username.y - username.height - 20px));
@@ -178,11 +187,11 @@ export component MainWindow inherits Window {
                     changed has-focus => {
                         if (self.has-focus) {
                             login-scroll.content-y = max(min(0px, login-scroll.visible-height - login-form.height),
-                                min(0px, login-scroll.visible-height - self.y - self.height - 20px));
+                                min(0px, login-scroll.visible-height - connect-button.y - connect-button.height - 20px));
                         }
                     }
                 }
-                Button {
+                connect-button := Button {
                     text: "Connect to Hermes";
                     clicked => { root.connect(gateway.text, username.text, password.text); }
                 }
