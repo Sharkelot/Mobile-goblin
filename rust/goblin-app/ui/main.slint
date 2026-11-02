@@ -41,6 +41,8 @@ export component MainWindow inherits Window {
     callback connect(string, string, string);
     callback new-chat();
     callback refresh-sessions();
+    callback search-sessions(string);
+    callback archived-sessions();
     callback open-session(string);
     callback send-message(string);
     callback answer-choice(string);
@@ -174,7 +176,7 @@ export component MainWindow inherits Window {
                 menu-items := VerticalBox {
                     width: parent.width - 8px;
                     spacing: 5px;
-                    Button { text: "Chats"; clicked => { root.resource-view = ""; root.show-sessions = true; root.refresh-sessions(); root.show-menu = false; } }
+                    Button { text: "Chats"; clicked => { root.resource-view = "chats"; root.refresh-sessions(); root.show-menu = false; } }
                     Button { text: "Scheduled jobs"; clicked => { root.resource-view = "jobs"; root.load-resource("jobs"); root.show-menu = false; } }
                     Button { text: "Skills"; clicked => { root.resource-view = "skills"; root.load-resource("skills"); root.show-menu = false; } }
                     Button { text: "Toolsets"; clicked => { root.resource-view = "tools"; root.load-resource("tools"); root.show-menu = false; } }
@@ -192,9 +194,28 @@ export component MainWindow inherits Window {
                 vertical-stretch: 1;
                 spacing: 5px;
                 HorizontalBox {
-                    Text { text: root.resource-view; color: #c6ff6c; font-size: 17px; }
-                    Button { text: "Refresh"; clicked => { root.load-resource(root.resource-view); } }
+                    Text { text: root.resource-view == "chats" ? "Chats" : root.resource-view; color: #c6ff6c; font-size: 17px; }
+                    if root.resource-view != "chats" : Button { text: "Refresh"; clicked => { root.load-resource(root.resource-view); } }
                     Button { text: "Close"; clicked => { root.resource-view = ""; } }
+                }
+                if root.resource-view == "chats" : VerticalBox {
+                    spacing: 6px;
+                    chat-query := LineEdit {
+                        placeholder-text: "Search chats and messages";
+                        accepted => { root.search-sessions(self.text); }
+                    }
+                    HorizontalBox {
+                        Button { text: "Search"; clicked => { root.search-sessions(chat-query.text); } }
+                        Button { text: "Recent"; clicked => { chat-query.text = ""; root.refresh-sessions(); } }
+                        Button { text: "Archived"; clicked => { chat-query.text = ""; root.archived-sessions(); } }
+                    }
+                    ListView {
+                        vertical-stretch: 1;
+                        for session in root.sessions: Button {
+                            text: session.title;
+                            clicked => { root.open-session(session.id); root.resource-view = ""; }
+                        }
+                    }
                 }
                 if root.resource-view == "jobs" : VerticalBox {
                     job-name := LineEdit { placeholder-text: "Job name"; }
@@ -227,7 +248,7 @@ export component MainWindow inherits Window {
                     server-name := LineEdit { placeholder-text: "MCP server name"; }
                     Button { text: "Test connection"; clicked => { root.mcp-test(server-name.text); } }
                 }
-                ScrollView {
+                if root.resource-view != "chats" : ScrollView {
                     vertical-stretch: 1;
                     Text { text: root.resource-content; color: #ebf9f0; wrap: word-wrap; font-size: 13px; width: parent.width - 22px; }
                 }
@@ -255,13 +276,6 @@ export component MainWindow inherits Window {
                 for model in root.models: Button {
                     text: model.label;
                     clicked => { root.select-model(model.provider, model.id); root.show-models = false; }
-                }
-            }
-            if root.resource-view == "" && root.show-sessions : ListView {
-                height: 180px;
-                for session in root.sessions: Button {
-                    text: session.title;
-                    clicked => { root.open-session(session.id); root.show-sessions = false; }
                 }
             }
             if root.resource-view == "" && root.session-id != "" : VerticalBox {

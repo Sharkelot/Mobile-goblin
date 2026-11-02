@@ -224,6 +224,36 @@ impl GatewayClient {
         Ok(checked(response).await?.json().await?)
     }
 
+    pub async fn search_sessions(
+        &self,
+        query: &str,
+        profile: Option<&str>,
+    ) -> Result<Value, GoblinError> {
+        let mut request = self
+            .http
+            .get(self.url.resolve("api/sessions/search")?)
+            .query(&[("q", query.trim()), ("limit", "50")]);
+        if let Some(profile) = profile {
+            request = request.query(&[("profile", profile)]);
+        }
+        let response = request.send().await?;
+        Ok(checked(response).await?.json().await?)
+    }
+
+    pub async fn archived_sessions(&self, profile: Option<&str>) -> Result<Value, GoblinError> {
+        let mut request = self.http.get(self.url.resolve("api/sessions")?).query(&[
+            ("limit", "50"),
+            ("offset", "0"),
+            ("archived", "only"),
+            ("order", "recent"),
+        ]);
+        if let Some(profile) = profile {
+            request = request.query(&[("profile", profile)]);
+        }
+        let response = request.send().await?;
+        Ok(checked(response).await?.json().await?)
+    }
+
     pub async fn messages(
         &self,
         session_id: &str,

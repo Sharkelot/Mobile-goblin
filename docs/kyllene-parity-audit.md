@@ -18,7 +18,7 @@ REA identified Kyllene's `ChatService.onStartCommand` as starting a foreground n
 
 ## User-facing comparison
 
-The Kotlin source has a gateway chooser and sign-in route, chat with a sessions sidebar, bot roster, rooms, inbox, scheduled jobs, insights, capabilities, plugins, settings, voice screens, media and attachment views, rich tool events, and phone and Wear integrations. Mobile Goblin currently has a live chat, recent sessions, profile and model controls, human input responses, cron/skills/toolset/MCP controls, and basic chat management. Its new menu starts to separate chat from management screens, but it is not yet equivalent to the Kyllene navigation or feature set.
+The Kotlin source has a gateway chooser and sign-in route, chat with a sessions sidebar, bot roster, rooms, inbox, scheduled jobs, insights, capabilities, plugins, settings, voice screens, media and attachment views, rich tool events, and phone and Wear integrations. Mobile Goblin currently has a live chat, a full-screen chat browser with recent and archived listings and gateway-backed search, profile and model controls, human input responses, cron/skills/toolset/MCP controls, and basic chat management. Its menu separates chat from management screens, but it is not yet equivalent to the Kyllene navigation or feature set.
 
 The largest missing blocks are:
 

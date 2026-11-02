@@ -24,6 +24,8 @@ enum Command {
     },
     NewChat,
     RefreshSessions,
+    SearchSessions(String),
+    ArchivedSessions,
     OpenSession(String),
     Send(String),
     AnswerChoice(String),
@@ -111,6 +113,14 @@ fn start() -> Result<(), slint::PlatformError> {
     let sender = commands.clone();
     ui.on_refresh_sessions(move || {
         let _ = sender.send(Command::RefreshSessions);
+    });
+    let sender = commands.clone();
+    ui.on_search_sessions(move |query| {
+        let _ = sender.send(Command::SearchSessions(query.to_string()));
+    });
+    let sender = commands.clone();
+    ui.on_archived_sessions(move || {
+        let _ = sender.send(Command::ArchivedSessions);
     });
     let sender = commands.clone();
     ui.on_open_session(move |id| {
@@ -358,21 +368,37 @@ async fn run_connection(
                 Some(Command::RefreshSessions) => {
                     match gateway.sessions(30, 0, client_state.selected_profile.as_deref()).await {
                         Ok(page) => {
-                            let rows: Vec<(String, String)> = page.get("sessions").and_then(Value::as_array)
-                                .into_iter().flatten().filter_map(|item| {
-                                    let id = item.get("id")?.as_str()?.to_owned();
-                                    let title = item.get("title").or_else(|| item.get("preview"))
-                                        .and_then(Value::as_str).unwrap_or("Untitled chat")
-                                        .lines().next().unwrap_or("Untitled chat").to_owned();
-                                    Some((id, title))
-                                }).collect();
-                            on_ui(move |ui| {
-                                let model = rows.into_iter().map(|(id, title)| SessionRow { id: id.into(), title: title.into() }).collect::<Vec<_>>();
-                                ui.set_sessions(slint::ModelRc::new(slint::VecModel::from(model)));
-                            });
-                            status("Choose a chat");
+                            present_sessions(&page, "sessions");
+                            status("Recent chats");
                         }
                         Err(error) => status(format!("Cannot load chats: {error}")),
+                    }
+                }
+                Some(Command::SearchSessions(query)) => {
+                    if query.trim().is_empty() {
+                        match gateway.sessions(30, 0, client_state.selected_profile.as_deref()).await {
+                            Ok(page) => { present_sessions(&page, "sessions"); status("Recent chats"); }
+                            Err(error) => status(format!("Cannot load chats: {error}")),
+                        }
+                        continue;
+                    }
+                    status("Searching chats…");
+                    match gateway.search_sessions(&query, client_state.selected_profile.as_deref()).await {
+                        Ok(page) => {
+                            let count = present_sessions(&page, "results");
+                            status(format!("{count} chat{} found", if count == 1 { "" } else { "s" }));
+                        }
+                        Err(error) => status(format!("Cannot search chats: {error}")),
+                    }
+                }
+                Some(Command::ArchivedSessions) => {
+                    status("Loading archived chats…");
+                    match gateway.archived_sessions(client_state.selected_profile.as_deref()).await {
+                        Ok(page) => {
+                            let count = present_sessions(&page, "sessions");
+                            status(format!("{count} archived chat{}", if count == 1 { "" } else { "s" }));
+                        }
+                        Err(error) => status(format!("Cannot load archived chats: {error}")),
                     }
                 }
                 Some(Command::OpenSession(stored_id)) => {
@@ -840,6 +866,57 @@ struct ClientState {
 struct PendingInput {
     request: HumanRequest,
     answers: Vec<String>,
+}
+
+fn present_sessions(page: &Value, field: &str) -> usize {
+    let mut seen = HashSet::new();
+    let rows: Vec<SessionRow> = page
+        .get(field)
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|item| {
+            let id = item.get("id")?.as_str()?.to_owned();
+            if !seen.insert(id.clone()) {
+                return None;
+            }
+            let title = item
+                .get("title")
+                .and_then(Value::as_str)
+                .filter(|title| !title.trim().is_empty())
+                .or_else(|| item.get("preview").and_then(Value::as_str))
+                .unwrap_or("Untitled chat")
+                .lines()
+                .next()
+                .unwrap_or("Untitled chat");
+            let title = if field == "results" {
+                let snippet = item
+                    .get("snippet")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .replace(">>>", "")
+                    .replace("<<<", "")
+                    .split_whitespace()
+                    .take(14)
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                if snippet.is_empty() {
+                    title.to_owned()
+                } else {
+                    format!("{title} · {snippet}")
+                }
+            } else {
+                title.to_owned()
+            };
+            Some(SessionRow {
+                id: id.into(),
+                title: title.into(),
+            })
+        })
+        .collect();
+    let count = rows.len();
+    on_ui(move |ui| ui.set_sessions(slint::ModelRc::new(slint::VecModel::from(rows))));
+    count
 }
 
 fn format_resource(resource: &str, value: &Value) -> String {
