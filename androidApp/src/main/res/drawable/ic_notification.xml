@@ -1,18 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- The summit in one color (ic_launcher_monochrome, its body cut off at y 82) cropped to fill the status bar's 24dp icon. -->
+<!-- Mobile Goblin silhouette for small monochrome notification icons. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="24dp"
     android:height="24dp"
-    android:viewportWidth="56"
-    android:viewportHeight="56">
-    <group
-        android:translateX="-26"
-        android:translateY="-30">
-        <group>
-            <clip-path android:pathData="@string/launcher_summit_sun_clip" />
-            <path android:fillColor="#FFFFFF" android:pathData="@string/launcher_summit_sun" />
-        </group>
-        <path android:fillColor="#FFFFFF" android:pathData="@string/launcher_summit_cap" />
-        <path android:fillColor="#FFFFFF" android:pathData="@string/launcher_summit_badge_body" />
-    </group>
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path android:fillColor="#FFFFFFFF"
+        android:pathData="M27,44 L4,31 L17,72 L31,67 Z" />
+    <path android:fillColor="#FFFFFFFF"
+        android:pathData="M81,44 L104,31 L91,72 L77,67 Z" />
+    <path android:fillColor="#FFFFFFFF"
+        android:pathData="M54,18 C31,18 20,35 20,55 C20,76 34,91 54,91 C74,91 88,76 88,55 C88,35 77,18 54,18 Z" />
 </vector>

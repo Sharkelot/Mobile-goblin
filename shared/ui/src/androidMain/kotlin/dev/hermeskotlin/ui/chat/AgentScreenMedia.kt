@@ -95,7 +95,7 @@ private var loader: ImageLoader? = null
  * name is turned away by some image hosts (Wikimedia).
  */
 private fun webClient(version: String?): OkHttpClient = client ?: run {
-    val agent = "Mobile Goblin/${version ?: "dev"} (Android; https://github.com/Giton22/kyllene)"
+    val agent = "Mobile Goblin/${version ?: "dev"} (Android; https://github.com/Sharkelot/Mobile-goblin)"
     OkHttpClient.Builder()
         .publicOnly()
         .addInterceptor { chain -> chain.proceed(chain.request().newBuilder().header("User-Agent", agent).build()) }

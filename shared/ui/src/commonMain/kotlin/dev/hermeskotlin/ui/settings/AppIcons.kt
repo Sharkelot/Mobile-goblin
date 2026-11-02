@@ -10,11 +10,10 @@ enum class AppIconGroup(val title: String) {
 }
 
 /**
- * The launcher icons Herald comes with. [Blue] is the brand icon every install starts with; the colors are the
- * accents', and the patterns put the outlined mark over a print.
+ * Mobile Goblin launcher icons. [Blue] is the default goblin icon; the other choices vary its background.
  */
 enum class AppIcon(val label: String, val group: AppIconGroup) {
-    Blue("Blue", AppIconGroup.Colors),
+    Blue("Goblin", AppIconGroup.Colors),
     Violet("Violet", AppIconGroup.Colors),
     Green("Green", AppIconGroup.Colors),
     Orange("Orange", AppIconGroup.Colors),

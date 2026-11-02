@@ -4,7 +4,7 @@ Mobile Goblin is an Android companion for a running Hermes Agent dashboard. It i
 
 ## Install
 
-1. Open the repository's **Actions** tab, select the latest successful **CI** run, and download `mobile-goblin-debug-apk` under **Artifacts**.
+1. Open the repository's [Android APK workflow](https://github.com/Sharkelot/Mobile-goblin/actions/workflows/apk.yml), select the latest successful run, and download `mobile-goblin-apk` under **Artifacts**.
 2. Unzip it and open `androidApp-debug.apk` on your Android phone. Allow installation from your file manager if Android asks. Android 8.0 or later is required.
 3. On the first screen, enter the same Hermes dashboard address you use from the desktop, including the port when needed. Use a Tailscale address or HTTPS endpoint when away from home. Tap **Test connection**, then sign in with your Hermes dashboard account.
 
@@ -25,3 +25,7 @@ Install Android SDK with API 37.1, a compatible JDK 25, and the Android build to
 ```
 
 The APK is written to `androidApp/build/outputs/apk/debug/androidApp-debug.apk`.
+
+## Artwork
+
+The [full mascot](docs/art/mobile-goblin-mascot.png) and [launcher artwork](androidApp/src/main/res/drawable-nodpi/mobile_goblin_launcher.png) are included in this repository. Adaptive launcher icons use the goblin image on different backgrounds. Themed icons and notifications use a goblin silhouette, and the chat avatar uses a matching vector mark.

@@ -821,10 +821,10 @@ internal fun SettingsView(
                     Divider()
                     val uriHandler = LocalUriHandler.current
                     NavRow(
-                        title = "Join the Discord",
-                        detail = "Get help, report bugs, suggest features and hear about new releases.",
+                        title = "Mobile Goblin on GitHub",
+                        detail = "Get the APK, report bugs and follow new builds.",
                         icon = Lucide.MessagesSquare,
-                        onClick = { uriHandler.openUri(DISCORD_INVITE) },
+                        onClick = { uriHandler.openUri(PROJECT_URL) },
                     )
                 }
             } }
@@ -852,8 +852,7 @@ internal fun SettingsView(
     }
 }
 
-/** The Mobile Goblin community server; the invite never expires. */
-private const val DISCORD_INVITE = "https://discord.gg/wCtyvQ3KcM"
+private const val PROJECT_URL = "https://github.com/Sharkelot/Mobile-goblin"
 
 /** The Phone tools row's line: off, or how many tools the agent may use. */
 private fun phoneToolsSummary(settings: AppSettings): String {

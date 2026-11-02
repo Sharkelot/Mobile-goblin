@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- The summit at dawn, as on the phone; launchers with themed icons use its one-color shapes. -->
+<!-- Mobile Goblin mascot, matching the phone app. -->
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
-    <background android:drawable="@drawable/ic_launcher_background" />
-    <foreground android:drawable="@drawable/ic_launcher_foreground" />
-    <monochrome android:drawable="@drawable/ic_launcher_monochrome" />
+    <background android:drawable="@color/mobile_goblin_icon_background" />
+    <foreground android:drawable="@drawable/mobile_goblin_launcher" />
+    <monochrome android:drawable="@drawable/mobile_goblin_monochrome" />
 </adaptive-icon>

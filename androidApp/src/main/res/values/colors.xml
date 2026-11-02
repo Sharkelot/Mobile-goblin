@@ -5,6 +5,6 @@
     <color name="window_background_light">#F7F7F9</color>
     <color name="window_background_dark">#0A0A0C</color>
     <!-- The brand mark keeps its own blue, as the design's herald-logo.svg does. -->
-    <color name="launcher_background">#0053FD</color>
-    <color name="notification_accent">#2F6BF5</color>
+    <color name="launcher_background">#10251D</color>
+    <color name="notification_accent">#33B86B</color>
 </resources>

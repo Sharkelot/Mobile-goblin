@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <color name="mobile_goblin_icon_background">#10251D</color>
     <!-- The summit at dawn in Blue, as the phone's default launcher icon (androidApp's launcher_icons.xml). -->
     <color name="launcher_sky_top">#0E1C47</color>
     <color name="launcher_sky_bottom">#23409F</color>

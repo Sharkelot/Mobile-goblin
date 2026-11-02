@@ -5,7 +5,7 @@ import android.content.Intent
 import android.os.Bundle
 import androidx.core.net.toUri
 
-/** Health Connect's "privacy policy" link for Herald: the README's Privacy section, in the browser. Invisible. */
+/** Health Connect's privacy policy link: the Mobile Goblin README's Privacy section. */
 class HealthPrivacyActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -15,6 +15,6 @@ class HealthPrivacyActivity : Activity() {
     }
 
     private companion object {
-        const val PRIVACY = "https://github.com/Giton22/kyllene#privacy"
+        const val PRIVACY = "https://github.com/Sharkelot/Mobile-goblin#privacy"
     }
 }
