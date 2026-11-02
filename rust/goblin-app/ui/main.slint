@@ -3,6 +3,7 @@ import { Button, LineEdit, ScrollView, ListView, VerticalBox, HorizontalBox } fr
 export struct SessionRow { id: string, title: string }
 export struct ModelRow { provider: string, id: string, label: string }
 export struct ProfileRow { name: string, label: string }
+export struct ChatRow { kind: string, label: string, body: string }
 
 export component MainWindow inherits Window {
     icon: @image-url("../resources/mipmap-hdpi/ic_launcher.png");
@@ -12,7 +13,8 @@ export component MainWindow inherits Window {
     preferred-height: 820px;
 
     in-out property <string> status: "Enter your Hermes dashboard address";
-    in-out property <string> conversation: "";
+    in-out property <[ChatRow]> chat-rows: [];
+    in-out property <int> chat-revision: 0;
     in-out property <string> composer-text: "";
     in-out property <string> session-id: "";
     in-out property <[SessionRow]> sessions: [];
@@ -286,14 +288,44 @@ export component MainWindow inherits Window {
                     Button { text: "Archive"; clicked => { root.archive-chat(); } }
                 }
             }
-            if root.resource-view == "" : ScrollView {
+            if root.resource-view == "" : chat-scroll := ScrollView {
                 vertical-stretch: 1;
-                Text {
-                    text: root.conversation == "" ? "Ask Hermes anything." : root.conversation;
-                    color: #ebf9f0;
-                    wrap: word-wrap;
-                    font-size: 16px;
-                    width: parent.width - 22px;
+                horizontal-scrollbar-policy: ScrollBarPolicy.always-off;
+                property <int> revision: root.chat-revision;
+                changed revision => {
+                    chat-scroll.content-y = min(0px, chat-scroll.visible-height - chat-stack.height);
+                }
+                chat-stack := VerticalBox {
+                    width: parent.width - 8px;
+                    spacing: 8px;
+                    if root.chat-rows.length == 0 : Text {
+                        text: "Ask Hermes anything.";
+                        color: #a5bbb0;
+                        font-size: 16px;
+                    }
+                    for row in root.chat-rows : Rectangle {
+                        background: row.kind == "user" ? #1c3025 : row.kind == "assistant" ? #18251f : #182023;
+                        border-radius: 9px;
+                        height: row-body.height + 38px;
+                        Text {
+                            x: 12px;
+                            y: 8px;
+                            width: parent.width - 24px;
+                            text: row.label;
+                            color: row.kind == "user" ? #c6ff6c : #94c9ac;
+                            font-size: 12px;
+                            font-weight: 700;
+                        }
+                        row-body := Text {
+                            x: 12px;
+                            y: 27px;
+                            width: parent.width - 24px;
+                            text: row.body;
+                            color: #ebf9f0;
+                            wrap: word-wrap;
+                            font-size: 15px;
+                        }
+                    }
                 }
             }
             if root.resource-view == "" : LineEdit { text <=> root.composer-text; placeholder-text: "Message Hermes"; }

@@ -82,9 +82,20 @@ fn status(message: impl Into<String>) {
     on_ui(move |ui| ui.set_status(message.into()));
 }
 
-fn transcript(message: impl Into<String>) {
-    let message = message.into();
-    on_ui(move |ui| ui.set_conversation(message.into()));
+fn render_chat(rows: &[ChatRow]) {
+    let rows = rows.to_vec();
+    on_ui(move |ui| {
+        ui.set_chat_rows(slint::ModelRc::new(slint::VecModel::from(rows)));
+        ui.set_chat_revision(ui.get_chat_revision().wrapping_add(1));
+    });
+}
+
+fn chat_row(kind: &str, label: &str, body: impl Into<String>) -> ChatRow {
+    ChatRow {
+        kind: kind.into(),
+        label: label.into(),
+        body: body.into().into(),
+    }
 }
 
 fn start() -> Result<(), slint::PlatformError> {
@@ -245,7 +256,7 @@ async fn worker(mut rx: mpsc::UnboundedReceiver<Command>) {
             continue;
         };
         let mut restore_id: Option<String> = None;
-        let mut conversation = String::new();
+        let mut chat_rows = Vec::new();
         let mut client_state = ClientState::default();
         let mut attempt = 0_u32;
         loop {
@@ -261,7 +272,7 @@ async fn worker(mut rx: mpsc::UnboundedReceiver<Command>) {
                 &username,
                 &password,
                 &mut restore_id,
-                &mut conversation,
+                &mut chat_rows,
                 &mut client_state,
                 &mut ready,
             )
@@ -300,7 +311,7 @@ async fn run_connection(
     username: &str,
     password: &str,
     restore_id: &mut Option<String>,
-    conversation: &mut String,
+    chat_rows: &mut Vec<ChatRow>,
     client_state: &mut ClientState,
     ready: &mut bool,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -330,6 +341,7 @@ async fn run_connection(
     let (mut sink, mut stream) = socket.split();
     let mut session_id: Option<String> = None;
     let mut draft = String::new();
+    let mut streaming_row: Option<usize> = None;
     let mut next_id: u64 = 1;
     let mut pending_send: VecDeque<String> = VecDeque::new();
     let mut attach_id: Option<String> = None;
@@ -402,8 +414,10 @@ async fn run_connection(
                     }
                 }
                 Some(Command::OpenSession(stored_id)) => {
-                    conversation.clear();
+                    chat_rows.clear();
+                    render_chat(chat_rows);
                     draft.clear();
+                    streaming_row = None;
                     session_id = None;
                     *restore_id = Some(stored_id.clone());
                     client_state.session_profile = client_state.selected_profile.clone();
@@ -414,14 +428,26 @@ async fn run_connection(
                                 for row in messages {
                                     if row.get("display_kind").and_then(Value::as_str) == Some("hidden") { continue; }
                                     let role = match row.get("role").and_then(Value::as_str) {
-                                        Some("user") => "You", Some("assistant") => "Goblin", _ => continue,
+                                        Some("user") => "You", Some("assistant") => "Goblin", Some("tool") => "Tool", _ => continue,
                                     };
                                     let content = row.get("display_content").or_else(|| row.get("content"));
-                                    let text = content.and_then(Value::as_str).unwrap_or_default();
-                                    if !text.is_empty() { conversation.push_str(&format!("{role}: {text}\n\n")); }
+                                    let text = history_text(content);
+                                    let kind = match role { "You" => "user", "Goblin" => "assistant", _ => "tool" };
+                                    if !text.is_empty() {
+                                        let label = if kind == "tool" { row.get("tool_name").and_then(Value::as_str).unwrap_or("Tool") } else { role };
+                                        chat_rows.push(chat_row(kind, label, text));
+                                    }
+                                    if kind == "assistant" {
+                                        if let Some(calls) = row.get("tool_calls").and_then(Value::as_array) {
+                                            for call in calls {
+                                                let name = call.pointer("/function/name").or_else(|| call.get("name")).and_then(Value::as_str).unwrap_or("Tool call");
+                                                chat_rows.push(chat_row("tool", name, "Called by Hermes"));
+                                            }
+                                        }
+                                    }
                                 }
                             }
-                            transcript(conversation.clone());
+                            render_chat(chat_rows);
                         }
                         Err(error) => status(format!("Cannot load history: {error}")),
                     }
@@ -435,15 +461,16 @@ async fn run_connection(
                     pending_send.clear();
                     client_state.session_profile = None;
                     draft.clear();
-                    conversation.clear();
-                    transcript("");
+                    streaming_row = None;
+                    chat_rows.clear();
+                    render_chat(chat_rows);
                     on_ui(|ui| ui.set_session_id("".into()));
                     status("New chat ready");
                 }
                 Some(Command::Send(text)) => {
                     if text.trim().is_empty() { continue; }
-                    conversation.push_str(&format!("You: {}\n\nGoblin: ", text.trim()));
-                    transcript(conversation.clone());
+                    chat_rows.push(chat_row("user", "You", text.trim()));
+                    render_chat(chat_rows);
                     draft.clear();
                     if let Some(id) = &session_id {
                         let request_id = send_rpc(&mut sink, &mut next_id, "prompt.submit", json!({"session_id": id, "profile": client_state.session_profile, "text": text})).await?;
@@ -523,9 +550,10 @@ async fn run_connection(
                     client_state.selected_model = None;
                     client_state.reasoning_effort = None;
                     client_state.fast = false;
-                    conversation.clear();
+                    chat_rows.clear();
                     draft.clear();
-                    transcript("");
+                    streaming_row = None;
+                    render_chat(chat_rows);
                     on_ui(move |ui| {
                         ui.set_session_id("".into());
                         ui.set_selected_profile(profile.into());
@@ -571,8 +599,8 @@ async fn run_connection(
                 Some(Command::Steer(text)) => {
                     if let Some(id) = &session_id {
                         send_rpc(&mut sink, &mut next_id, "session.steer", json!({"profile":client_state.session_profile,"session_id":id,"text":text})).await?;
-                        conversation.push_str(&format!("Steer: {text}\n\n"));
-                        transcript(conversation.clone());
+                        chat_rows.push(chat_row("user", "Steer", &text));
+                        render_chat(chat_rows);
                         status("Steering Hermes…");
                     }
                 }
@@ -661,26 +689,54 @@ async fn run_connection(
                                             render_pending(human_inputs.front());
                                         }
                                     }
-                                    "tool.start" => status(format!("Using {}…", payload.get("name").and_then(Value::as_str).unwrap_or("tool"))),
-                                    "tool.complete" => status("Hermes is working…"),
+                                    "tool.start" => {
+                                        let name = payload.get("name").and_then(Value::as_str).unwrap_or("Tool");
+                                        status(format!("Using {name}…"));
+                                        chat_rows.push(chat_row("tool", name, "Running…"));
+                                        render_chat(chat_rows);
+                                    }
+                                    "tool.complete" => {
+                                        status("Hermes is working…");
+                                        if let Some(row) = chat_rows.iter_mut().rev().find(|row| row.kind.as_str() == "tool" && row.body.as_str() == "Running…") {
+                                            row.body = "Finished".into();
+                                            render_chat(chat_rows);
+                                        }
+                                    }
                                     "message.delta" => {
                                         if let Some(chunk) = payload.get("text").or_else(|| payload.get("delta")).and_then(Value::as_str) {
                                             draft.push_str(chunk);
-                                            transcript(format!("{conversation}{draft}"));
+                                            if streaming_row.is_none() {
+                                                chat_rows.push(chat_row("assistant", "Goblin", &draft));
+                                                streaming_row = Some(chat_rows.len() - 1);
+                                            } else if let Some(row) = streaming_row.and_then(|index| chat_rows.get_mut(index)) {
+                                                row.body = draft.clone().into();
+                                            }
+                                            render_chat(chat_rows);
                                         }
                                     }
-                                    "message.start" => on_ui(|ui| ui.set_busy(true)),
+                                    "message.start" => {
+                                        on_ui(|ui| ui.set_busy(true));
+                                        if streaming_row.is_none() {
+                                            chat_rows.push(chat_row("assistant", "Goblin", "Thinking…"));
+                                            streaming_row = Some(chat_rows.len() - 1);
+                                            render_chat(chat_rows);
+                                        }
+                                    }
                                     "message.complete" => {
                                         on_ui(|ui| ui.set_busy(false));
                                         if let Some(full) = payload.get("text").and_then(Value::as_str) {
                                             draft = full.to_owned();
                                         }
                                         if !draft.is_empty() {
-                                            conversation.push_str(&draft);
-                                            conversation.push_str("\n\n");
+                                            if let Some(row) = streaming_row.and_then(|index| chat_rows.get_mut(index)) {
+                                                row.body = draft.clone().into();
+                                            } else {
+                                                chat_rows.push(chat_row("assistant", "Goblin", &draft));
+                                            }
                                             draft.clear();
-                                            transcript(conversation.clone());
+                                            render_chat(chat_rows);
                                         }
+                                        streaming_row = None;
                                         status("Ready");
                                     }
                                     "error" => status(format!("Hermes error: {}", payload.get("message").and_then(Value::as_str).unwrap_or("unknown"))),
@@ -725,8 +781,9 @@ async fn run_connection(
                                         archive_id = None;
                                         session_id = None;
                                         *restore_id = None;
-                                        conversation.clear();
-                                        transcript("");
+                                        chat_rows.clear();
+                                        streaming_row = None;
+                                        render_chat(chat_rows);
                                         on_ui(|ui| ui.set_session_id("".into()));
                                         status("Chat archived");
                                         continue;
@@ -819,13 +876,13 @@ async fn run_connection(
                                     if attach_id.as_deref() == Some(&response_id) {
                                         attach_id = None;
                                         pending_send.clear();
-                                        conversation.push_str("Chat could not be opened. Message was not sent.\n\n");
-                                        transcript(conversation.clone());
+                                        chat_rows.push(chat_row("notice", "Connection", "Chat could not be opened. Message was not sent."));
+                                        render_chat(chat_rows);
                                     }
                                     if pending_prompts.remove(&response_id) {
                                         on_ui(|ui| ui.set_busy(false));
-                                        conversation.push_str("Message was not accepted by Hermes.\n\n");
-                                        transcript(conversation.clone());
+                                        chat_rows.push(chat_row("notice", "Hermes", "Message was not accepted by Hermes."));
+                                        render_chat(chat_rows);
                                     }
                                     if model_set_id.as_deref() == Some(&response_id) { model_candidate = None; }
                                     status(format!("Hermes: {}", fault.message));
@@ -866,6 +923,28 @@ struct ClientState {
 struct PendingInput {
     request: HumanRequest,
     answers: Vec<String>,
+}
+
+fn history_text(content: Option<&Value>) -> String {
+    match content {
+        Some(Value::String(text)) => text.clone(),
+        Some(Value::Array(parts)) => parts
+            .iter()
+            .filter_map(|part| {
+                if let Some(text) = part.get("text").and_then(Value::as_str) {
+                    return Some(text.to_owned());
+                }
+                let kind = part.get("type").and_then(Value::as_str).unwrap_or_default();
+                if matches!(kind, "image" | "image_url" | "input_image") {
+                    Some("[Image attachment]".to_owned())
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n"),
+        _ => String::new(),
+    }
 }
 
 fn present_sessions(page: &Value, field: &str) -> usize {
@@ -1161,4 +1240,23 @@ fn android_main(app: slint::android::AndroidApp) {
 #[cfg(not(target_os = "android"))]
 pub fn main() {
     start().expect("run Mobile Goblin");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::history_text;
+    use serde_json::json;
+
+    #[test]
+    fn history_keeps_text_and_marks_image_parts() {
+        let content = json!([
+            {"type":"text","text":"What is in this picture?"},
+            {"type":"image_url","image_url":{"url":"data:image/png;base64,..."}},
+            {"type":"text","text":"Please be concise."}
+        ]);
+        assert_eq!(
+            history_text(Some(&content)),
+            "What is in this picture?\n[Image attachment]\nPlease be concise."
+        );
+    }
 }
