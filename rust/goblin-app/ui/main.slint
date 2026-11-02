@@ -3,6 +3,7 @@ import { Button, LineEdit, ScrollView, ListView, VerticalBox, HorizontalBox } fr
 export struct SessionRow { id: string, title: string }
 export struct ModelRow { provider: string, id: string, label: string }
 export struct ProfileRow { name: string, label: string }
+export struct BotRow { name: string, label: string, preview: string, session-id: string, hidden: bool }
 export struct ChatRow { kind: string, label: string, body: string }
 
 export component MainWindow inherits Window {
@@ -20,6 +21,7 @@ export component MainWindow inherits Window {
     in-out property <[SessionRow]> sessions: [];
     in-out property <[ModelRow]> models: [];
     in-out property <[ProfileRow]> profiles: [];
+    in-out property <[BotRow]> bots: [];
     in-out property <string> selected-profile: "default";
     in-out property <string> selected-model: "Profile default";
     in-out property <bool> show-models: false;
@@ -54,6 +56,8 @@ export component MainWindow inherits Window {
     callback refresh-models();
     callback select-model(string, string);
     callback refresh-profiles();
+    callback refresh-bots();
+    callback open-bot(string, string);
     callback select-profile(string);
     callback set-effort(string);
     callback set-fast(bool);
@@ -179,6 +183,7 @@ export component MainWindow inherits Window {
                     width: parent.width - 8px;
                     spacing: 5px;
                     Button { text: "Chats"; clicked => { root.resource-view = "chats"; root.refresh-sessions(); root.show-menu = false; } }
+                    Button { text: "Bots"; clicked => { root.resource-view = "bots"; root.refresh-bots(); root.show-menu = false; } }
                     Button { text: "Scheduled jobs"; clicked => { root.resource-view = "jobs"; root.load-resource("jobs"); root.show-menu = false; } }
                     Button { text: "Skills"; clicked => { root.resource-view = "skills"; root.load-resource("skills"); root.show-menu = false; } }
                     Button { text: "Toolsets"; clicked => { root.resource-view = "tools"; root.load-resource("tools"); root.show-menu = false; } }
@@ -197,7 +202,8 @@ export component MainWindow inherits Window {
                 spacing: 5px;
                 HorizontalBox {
                     Text { text: root.resource-view == "chats" ? "Chats" : root.resource-view; color: #c6ff6c; font-size: 17px; }
-                    if root.resource-view != "chats" : Button { text: "Refresh"; clicked => { root.load-resource(root.resource-view); } }
+                    if root.resource-view == "bots" : Button { text: "Refresh"; clicked => { root.refresh-bots(); } }
+                    if root.resource-view != "chats" && root.resource-view != "bots" : Button { text: "Refresh"; clicked => { root.load-resource(root.resource-view); } }
                     Button { text: "Close"; clicked => { root.resource-view = ""; } }
                 }
                 if root.resource-view == "chats" : VerticalBox {
@@ -218,6 +224,20 @@ export component MainWindow inherits Window {
                             clicked => { root.open-session(session.id); root.resource-view = ""; }
                         }
                     }
+                }
+                if root.resource-view == "bots" : VerticalBox {
+                    vertical-stretch: 1;
+                    spacing: 6px;
+                    Text { text: "Hermes agents and their permanent chats"; color: #a5bbb0; font-size: 12px; }
+                    ListView {
+                        vertical-stretch: 1;
+                        for bot in root.bots : Button {
+                            text: (bot.hidden ? "Hidden · " : "") + bot.label + (bot.preview == "" ? "" : " · " + bot.preview);
+                            enabled: bot.session-id != "";
+                            clicked => { root.open-bot(bot.name, bot.session-id); root.resource-view = ""; }
+                        }
+                    }
+                    Text { text: "Bots without a permanent chat are shown after their chat is created in Hermes."; color: #90a99e; wrap: word-wrap; font-size: 12px; }
                 }
                 if root.resource-view == "jobs" : VerticalBox {
                     job-name := LineEdit { placeholder-text: "Job name"; }
@@ -250,7 +270,7 @@ export component MainWindow inherits Window {
                     server-name := LineEdit { placeholder-text: "MCP server name"; }
                     Button { text: "Test connection"; clicked => { root.mcp-test(server-name.text); } }
                 }
-                if root.resource-view != "chats" : ScrollView {
+                if root.resource-view != "chats" && root.resource-view != "bots" : ScrollView {
                     vertical-stretch: 1;
                     Text { text: root.resource-content; color: #ebf9f0; wrap: word-wrap; font-size: 13px; width: parent.width - 22px; }
                 }

@@ -33,6 +33,11 @@ enum Command {
     CancelInput,
     Interrupt,
     RefreshProfiles,
+    RefreshBots,
+    OpenBot {
+        name: String,
+        session_id: String,
+    },
     SelectProfile(String),
     RefreshModels,
     SelectModel {
@@ -160,6 +165,17 @@ fn start() -> Result<(), slint::PlatformError> {
     let sender = commands.clone();
     ui.on_refresh_profiles(move || {
         let _ = sender.send(Command::RefreshProfiles);
+    });
+    let sender = commands.clone();
+    ui.on_refresh_bots(move || {
+        let _ = sender.send(Command::RefreshBots);
+    });
+    let sender = commands.clone();
+    ui.on_open_bot(move |name, session_id| {
+        let _ = sender.send(Command::OpenBot {
+            name: name.to_string(),
+            session_id: session_id.to_string(),
+        });
     });
     let sender = commands.clone();
     ui.on_select_profile(move |profile| {
@@ -356,6 +372,7 @@ async fn run_connection(
     let mut last_inbound = std::time::Instant::now();
     let mut model_options_id: Option<String> = None;
     let mut profiles_id: Option<String> = None;
+    let mut roster_id: Option<String> = None;
     let mut model_set_id: Option<String> = None;
     let mut resource_requests: HashMap<String, String> = HashMap::new();
     let mut job_mutation_ids: HashSet<String> = HashSet::new();
@@ -416,7 +433,25 @@ async fn run_connection(
                         Err(error) => status(format!("Cannot load archived chats: {error}")),
                     }
                 }
-                Some(Command::OpenSession(stored_id)) => {
+                Some(command @ (Command::OpenSession(_) | Command::OpenBot { .. })) => {
+                    let stored_id = match command {
+                        Command::OpenSession(id) => id,
+                        Command::OpenBot { name, session_id } => {
+                            if session_id.is_empty() { status("This bot has no permanent chat yet"); continue; }
+                            client_state.selected_profile = if name == "default" { None } else { Some(name.clone()) };
+                            client_state.selected_model = None;
+                            client_state.reasoning_effort = None;
+                            client_state.fast = false;
+                            on_ui(move |ui| {
+                                ui.set_selected_profile(name.into());
+                                ui.set_selected_model("Profile default".into());
+                                ui.set_selected_effort("Profile default".into());
+                                ui.set_fast(false);
+                            });
+                            session_id
+                        }
+                        _ => unreachable!(),
+                    };
                     chat_rows.clear();
                     tool_rows.clear();
                     reasoning_row = None;
@@ -553,6 +588,10 @@ async fn run_connection(
                 }
                 Some(Command::RefreshProfiles) => {
                     profiles_id = Some(send_rpc(&mut sink, &mut next_id, "profiles.list", json!({"include_sessions":false})).await?);
+                }
+                Some(Command::RefreshBots) => {
+                    roster_id = Some(send_rpc(&mut sink, &mut next_id, "profiles.list", json!({})).await?);
+                    status("Loading bots…");
                 }
                 Some(Command::SelectProfile(profile)) => {
                     client_state.selected_profile = if profile == "default" { None } else { Some(profile.clone()) };
@@ -886,6 +925,14 @@ async fn run_connection(
                                         });
                                         continue;
                                     }
+                                    if roster_id.as_deref() == Some(&response_id) {
+                                        roster_id = None;
+                                        let rows = parse_bot_rows(&value);
+                                        let count = rows.len();
+                                        on_ui(move |ui| ui.set_bots(slint::ModelRc::new(slint::VecModel::from(rows))));
+                                        status(format!("{count} bot{}", if count == 1 { "" } else { "s" }));
+                                        continue;
+                                    }
                                     if model_options_id.as_deref() == Some(&response_id) {
                                         let mut rows = Vec::new();
                                         for provider in value.get("providers").and_then(Value::as_array).into_iter().flatten() {
@@ -1069,6 +1116,90 @@ fn tool_summary(payload: &Value) -> String {
         .unwrap_or(if failed { "Tool failed" } else { "Finished" });
     let prefix = if failed { "Failed: " } else { "" };
     format!("{prefix}{}", short_text(summary, 500))
+}
+
+fn parse_bot_rows(value: &Value) -> Vec<BotRow> {
+    let mut rows: Vec<(bool, bool, f64, String, BotRow)> = value
+        .get("profiles")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|item| {
+            let name = item.get("name")?.as_str()?;
+            let meta = item.pointer("/ui_meta/hermes-bots");
+            let title = meta
+                .and_then(|meta| meta.get("title"))
+                .and_then(Value::as_str)
+                .filter(|text| !text.trim().is_empty())
+                .or_else(|| {
+                    item.get("display_name")
+                        .and_then(Value::as_str)
+                        .filter(|text| !text.trim().is_empty())
+                })
+                .unwrap_or(if name == "default" { "Hermes" } else { name });
+            let canonical = item.get("canonical_session");
+            let session_id = canonical
+                .and_then(|session| {
+                    session
+                        .get("resolved_id")
+                        .and_then(Value::as_str)
+                        .filter(|id| !id.is_empty())
+                        .or_else(|| session.get("id").and_then(Value::as_str))
+                })
+                .unwrap_or_default();
+            let preview = canonical
+                .and_then(|session| session.get("preview"))
+                .or_else(|| item.pointer("/last_session/preview"))
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            let preview = short_text(
+                &preview.split_whitespace().collect::<Vec<_>>().join(" "),
+                80,
+            );
+            let hidden = meta
+                .and_then(|meta| meta.get("hidden"))
+                .and_then(Value::as_bool)
+                == Some(true);
+            let pinned = meta
+                .and_then(|meta| meta.get("pinned"))
+                .and_then(Value::as_bool)
+                == Some(true);
+            let activity = ["canonical_session", "last_session", "worker_session"]
+                .iter()
+                .filter_map(|key| {
+                    item.get(key)
+                        .and_then(|session| session.get("last_active"))
+                        .and_then(Value::as_f64)
+                })
+                .fold(0.0_f64, f64::max);
+            let created = meta
+                .and_then(|meta| meta.get("created"))
+                .and_then(Value::as_f64)
+                .unwrap_or(0.0)
+                / 1000.0;
+            Some((
+                hidden,
+                pinned,
+                activity.max(created),
+                title.to_lowercase(),
+                BotRow {
+                    name: name.into(),
+                    label: title.into(),
+                    preview: preview.into(),
+                    session_id: session_id.into(),
+                    hidden,
+                },
+            ))
+        })
+        .collect();
+    rows.sort_by(|left, right| {
+        left.0
+            .cmp(&right.0)
+            .then_with(|| right.1.cmp(&left.1))
+            .then_with(|| right.2.total_cmp(&left.2))
+            .then_with(|| left.3.cmp(&right.3))
+    });
+    rows.into_iter().map(|(_, _, _, _, row)| row).collect()
 }
 
 fn present_sessions(page: &Value, field: &str) -> usize {
@@ -1368,7 +1499,7 @@ pub fn main() {
 
 #[cfg(test)]
 mod tests {
-    use super::{history_reasoning, history_text, short_text, tool_summary};
+    use super::{history_reasoning, history_text, parse_bot_rows, short_text, tool_summary};
     use serde_json::json;
 
     #[test]
@@ -1405,5 +1536,22 @@ mod tests {
             "Failed: Denied"
         );
         assert_eq!(short_text("ééé", 2), "éé…");
+    }
+
+    #[test]
+    fn roster_uses_canonical_chat_and_keeps_hidden_bots_last() {
+        let roster = json!({"profiles":[
+            {"name":"quiet","ui_meta":{"hermes-bots":{"title":"Quiet","hidden":true}},"canonical_session":{"id":"old"}},
+            {"name":"default","last_session":{"preview":"other chat"},"canonical_session":{"id":"old-id","resolved_id":"live-id","preview":"Hello"},"ui_meta":{"hermes-bots":{"pinned":true}}},
+            {"name":"new","display_name":"Fresh","canonical_session":null}
+        ]});
+        let rows = parse_bot_rows(&roster);
+        assert_eq!(rows.len(), 3);
+        assert_eq!(rows[0].name.as_str(), "default");
+        assert_eq!(rows[0].label.as_str(), "Hermes");
+        assert_eq!(rows[0].session_id.as_str(), "live-id");
+        assert_eq!(rows[0].preview.as_str(), "Hello");
+        assert_eq!(rows[1].session_id.as_str(), "");
+        assert_eq!(rows[2].name.as_str(), "quiet");
     }
 }
