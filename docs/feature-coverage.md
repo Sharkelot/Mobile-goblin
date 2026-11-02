@@ -14,6 +14,7 @@ Target: the running Hermes dashboard reports version 0.22.5. Its generated OpenR
 | Automation | List, add, pause, resume and remove cron jobs | Background work status and notifications |
 | Insights | Profile-aware gateway usage for 7, 30 and 90 days, including cost, tokens, model, tool and skill breakdowns | Interactive daily chart and richer presentation |
 | Capabilities | Profile-aware Skills, Toolsets and MCP lists with per-item enabled state and REST switches; plugin-owned MCP servers and unconfigured toolsets are identified | Full editor, setup flows and server management |
+| Plugins | Profile-aware list of gateway dashboard plugin pages with label, description, version, source and path; hidden/internal tabs are omitted | Open authenticated plugin pages in-app, install/update/remove and Next Prompt suggestions |
 | Skills and tools | View installed skills and toolsets; skill hub search, browse, inspect and install; enable/disable toolsets; list and test MCP servers | Full MCP server management and richer tool configuration |
 | Voice and device | — | Voice, phone tools, Wear and push notifications |
 | Local data | No credential or transcript persistence | Keystore-backed credentials, offline cache and stable release signing |

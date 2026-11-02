@@ -58,6 +58,7 @@ enum Command {
     LoadResource(String),
     LoadInsights(u16),
     LoadCapabilities(String),
+    LoadPlugins,
     ToggleCapability {
         kind: String,
         name: String,
@@ -259,6 +260,10 @@ fn start() -> Result<(), slint::PlatformError> {
     let sender = commands.clone();
     ui.on_load_capabilities(move |kind| {
         let _ = sender.send(Command::LoadCapabilities(kind.to_string()));
+    });
+    let sender = commands.clone();
+    ui.on_load_plugins(move || {
+        let _ = sender.send(Command::LoadPlugins);
     });
     let sender = commands.clone();
     ui.on_toggle_capability(move |kind, name, enabled| {
@@ -876,6 +881,30 @@ async fn run_connection(
                                     ui.set_resource_content(message.into());
                                 }
                                 Err(error) => ui.set_resource_content(format!("Cannot load capabilities: {error}").into()),
+                            }
+                        });
+                    });
+                }
+                Some(Command::LoadPlugins) => {
+                    let gateway = gateway.clone();
+                    let profile = client_state.selected_profile.clone();
+                    on_ui(|ui| {
+                        ui.set_plugin_rows(slint::ModelRc::new(slint::VecModel::from(Vec::<PluginRow>::new())));
+                        ui.set_resource_content("Loading plugins…".into());
+                    });
+                    tokio::spawn(async move {
+                        let result = gateway.dashboard_plugins(profile.as_deref()).await;
+                        on_ui(move |ui| {
+                            if ui.get_resource_view().as_str() != "plugins"
+                                || ui.get_selected_profile().as_str() != profile.as_deref().unwrap_or("default") { return; }
+                            match result {
+                                Ok(value) => {
+                                    let rows = parse_plugins(&value);
+                                    let message = if rows.is_empty() { "No plugin pages for this agent" } else { "Plugin pages are listed below" };
+                                    ui.set_plugin_rows(slint::ModelRc::new(slint::VecModel::from(rows)));
+                                    ui.set_resource_content(message.into());
+                                }
+                                Err(error) => ui.set_resource_content(format!("Cannot load plugins: {error}").into()),
                             }
                         });
                     });
@@ -1567,6 +1596,49 @@ fn present_rooms(hosted: &[RoomRow], desktop: &[RoomRow]) {
 
 fn present_room_lines(lines: Vec<ChatRow>) {
     on_ui(move |ui| ui.set_room_lines(slint::ModelRc::new(slint::VecModel::from(lines))));
+}
+
+fn parse_plugins(value: &Value) -> Vec<PluginRow> {
+    value
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|item| {
+            let name = item.get("name")?.as_str()?;
+            let tab = item.get("tab")?;
+            if tab.get("hidden").and_then(Value::as_bool).unwrap_or(false) {
+                return None;
+            }
+            let path = tab.get("path")?.as_str()?.trim();
+            if path.is_empty() {
+                return None;
+            }
+            let label = item.get("label").and_then(Value::as_str).unwrap_or(name);
+            let description = item
+                .get("description")
+                .and_then(Value::as_str)
+                .unwrap_or("");
+            let source = item.get("source").and_then(Value::as_str).unwrap_or("user");
+            let version = item
+                .get("version")
+                .and_then(Value::as_str)
+                .filter(|s| !s.is_empty());
+            let metadata = match version {
+                Some(version) => format!("v{version} · {source}"),
+                None => source.to_owned(),
+            };
+            let detail = if description.is_empty() {
+                metadata
+            } else {
+                format!("{description} · {metadata}")
+            };
+            Some(PluginRow {
+                label: label.into(),
+                detail: detail.into(),
+                path: path.into(),
+            })
+        })
+        .collect()
 }
 
 fn parse_capabilities(kind: &str, value: &Value) -> Vec<CapabilityRow> {
@@ -2310,6 +2382,21 @@ pub fn main() {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn plugin_catalogue_shows_only_visible_pages_and_handles_null_metadata() {
+        let rows = super::parse_plugins(&serde_json::json!([
+            {"name":"kanban","label":"Kanban","description":"Boards","version":"1.2","source":"user","tab":{"path":"/kanban","hidden":false}},
+            {"name":"internal","tab":{"path":"/internal","hidden":true}},
+            {"name":"hook","description":null,"version":null,"tab":null},
+            {"name":"achievements","description":null,"version":null,"tab":{"path":"/achievements"}}
+        ]));
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].label.as_str(), "Kanban");
+        assert_eq!(rows[0].path.as_str(), "/kanban");
+        assert!(rows[0].detail.as_str().contains("v1.2 · user"));
+        assert_eq!(rows[1].label.as_str(), "achievements");
+        assert_eq!(rows[1].detail.as_str(), "user");
+    }
     #[test]
     fn capability_lists_follow_kyllene_rest_shapes() {
         let skills = super::parse_capabilities(

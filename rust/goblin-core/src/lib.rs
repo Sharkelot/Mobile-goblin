@@ -286,6 +286,15 @@ impl GatewayClient {
         Ok(checked(request.send().await?).await?.json().await?)
     }
 
+    /// Lists dashboard plugins for a profile using Kyllene's Plugins page route.
+    pub async fn dashboard_plugins(&self, profile: Option<&str>) -> Result<Value, GoblinError> {
+        let mut request = self.http.get(self.url.resolve("api/dashboard/plugins")?);
+        if let Some(profile) = profile {
+            request = request.query(&[("profile", profile)]);
+        }
+        Ok(checked(request.send().await?).await?.json().await?)
+    }
+
     /// Saves one switch to the selected profile. Hermes applies it from the next chat on.
     pub async fn set_capability_enabled(
         &self,
