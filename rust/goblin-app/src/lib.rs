@@ -50,6 +50,15 @@ enum Command {
     TitleChat(String),
     ArchiveChat,
     BranchChat(String),
+    SkillAction {
+        action: String,
+        query: String,
+    },
+    ToolAction {
+        action: String,
+        name: String,
+    },
+    McpTest(String),
 }
 
 thread_local! {
@@ -183,6 +192,24 @@ fn start() -> Result<(), slint::PlatformError> {
     ui.on_branch_chat(move |name| {
         let _ = sender.send(Command::BranchChat(name.to_string()));
     });
+    let sender = commands.clone();
+    ui.on_skill_action(move |action, query| {
+        let _ = sender.send(Command::SkillAction {
+            action: action.to_string(),
+            query: query.to_string(),
+        });
+    });
+    let sender = commands.clone();
+    ui.on_tool_action(move |action, name| {
+        let _ = sender.send(Command::ToolAction {
+            action: action.to_string(),
+            name: name.to_string(),
+        });
+    });
+    let sender = commands.clone();
+    ui.on_mcp_test(move |name| {
+        let _ = sender.send(Command::McpTest(name.to_string()));
+    });
     ui.on_send_message(move |message| {
         let _ = commands.send(Command::Send(message.to_string()));
     });
@@ -307,6 +334,8 @@ async fn run_connection(
     let mut model_set_id: Option<String> = None;
     let mut resource_requests: HashMap<String, String> = HashMap::new();
     let mut job_mutation_ids: HashSet<String> = HashSet::new();
+    let mut skill_install_ids: HashSet<String> = HashSet::new();
+    let mut tool_action_ids: HashSet<String> = HashSet::new();
     let mut branch_id: Option<String> = None;
     let mut archive_id: Option<String> = None;
     let mut title_id: Option<String> = None;
@@ -560,6 +589,25 @@ async fn run_connection(
                         status("Creating branch…");
                     }
                 }
+                Some(Command::SkillAction { action, query }) => {
+                    if !matches!(action.as_str(), "search"|"browse"|"inspect"|"install") { continue; }
+                    if action != "browse" && query.trim().is_empty() { status("Enter a skill query or identifier"); continue; }
+                    let id = send_rpc(&mut sink, &mut next_id, "skills.manage", json!({"action":action,"query":query.trim(),"profile":client_state.selected_profile})).await?;
+                    if action == "install" { skill_install_ids.insert(id); } else { resource_requests.insert(id, format!("skills:{action}")); }
+                    on_ui(|ui| ui.set_resource_content("Loading skills…".into()));
+                }
+                Some(Command::ToolAction { action, name }) => {
+                    if !matches!(action.as_str(), "enable"|"disable") || name.trim().is_empty() { status("Enter a toolset name"); continue; }
+                    let id = send_rpc(&mut sink, &mut next_id, "tools.configure", json!({"action":action,"names":[name.trim()],"session_id":session_id,"profile":client_state.selected_profile})).await?;
+                    tool_action_ids.insert(id);
+                    status("Updating tools…");
+                }
+                Some(Command::McpTest(name)) => {
+                    if name.trim().is_empty() { status("Enter an MCP server name"); continue; }
+                    let id = send_rpc(&mut sink, &mut next_id, "mcp.servers.test", json!({"name":name.trim(),"profile":client_state.selected_profile})).await?;
+                    resource_requests.insert(id, "mcp:test".to_owned());
+                    on_ui(|ui| ui.set_resource_content("Testing MCP server…".into()));
+                }
                 Some(Command::Connect { .. }) => status("Already connected"),
                 None => return Ok(()),
             },
@@ -629,6 +677,21 @@ async fn run_connection(
                                             let id = send_rpc(&mut sink, &mut next_id, "cron.manage", json!({"action":"list","include_disabled":true,"profile":client_state.selected_profile})).await?;
                                             resource_requests.insert(id, "jobs".to_owned());
                                         }
+                                        continue;
+                                    }
+                                    if skill_install_ids.remove(&response_id) {
+                                        let installed = value.get("installed").and_then(Value::as_bool) == Some(true);
+                                        status(if installed { "Skill installed" } else { "Skill installation did not complete" });
+                                        let id = send_rpc(&mut sink, &mut next_id, "skills.manage", json!({"action":"list","profile":client_state.selected_profile})).await?;
+                                        resource_requests.insert(id, "skills".to_owned());
+                                        continue;
+                                    }
+                                    if tool_action_ids.remove(&response_id) {
+                                        let unknown = value.get("unknown").and_then(Value::as_array).is_some_and(|items| !items.is_empty());
+                                        let missing = value.get("missing_servers").and_then(Value::as_array).is_some_and(|items| !items.is_empty());
+                                        status(if unknown || missing { "Some toolsets were not found. Check their names." } else { "Toolset updated" });
+                                        let id = send_rpc(&mut sink, &mut next_id, "tools.list", json!({"session_id":session_id})).await?;
+                                        resource_requests.insert(id, "tools".to_owned());
                                         continue;
                                     }
                                     if title_id.as_deref() == Some(&response_id) { title_id = None; status("Chat renamed"); continue; }
@@ -725,6 +788,8 @@ async fn run_connection(
                                 Err(fault) => {
                                     resource_requests.remove(&response_id);
                                     job_mutation_ids.remove(&response_id);
+                                    skill_install_ids.remove(&response_id);
+                                    tool_action_ids.remove(&response_id);
                                     if attach_id.as_deref() == Some(&response_id) {
                                         attach_id = None;
                                         pending_send.clear();
@@ -819,6 +884,39 @@ fn format_resource(resource: &str, value: &Value) -> String {
                 }
             }
         }
+        "skills:search" | "skills:browse" => {
+            let key = if resource == "skills:search" {
+                "results"
+            } else {
+                "items"
+            };
+            for item in value
+                .get(key)
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+            {
+                let name = item
+                    .get("name")
+                    .or_else(|| item.get("slug"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("Skill");
+                let description = item
+                    .get("description")
+                    .or_else(|| item.get("summary"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
+                lines.push(format!("{name}\n{description}"));
+            }
+        }
+        "skills:inspect" => {
+            if let Some(info) = value.get("info") {
+                lines.push(
+                    serde_json::to_string_pretty(info)
+                        .unwrap_or_else(|_| "Cannot show skill".to_owned()),
+                );
+            }
+        }
         "tools" => {
             for toolset in value
                 .get("toolsets")
@@ -868,6 +966,12 @@ fn format_resource(resource: &str, value: &Value) -> String {
                 };
                 lines.push(format!("{name} · {transport} · {state}"));
             }
+        }
+        "mcp:test" => {
+            lines.push(
+                serde_json::to_string_pretty(value)
+                    .unwrap_or_else(|_| "Cannot show test result".to_owned()),
+            );
         }
         _ => {}
     }

@@ -57,6 +57,9 @@ export component MainWindow inherits Window {
     callback title-chat(string);
     callback archive-chat();
     callback branch-chat(string);
+    callback skill-action(string, string);
+    callback tool-action(string, string);
+    callback mcp-test(string);
 
     VerticalBox {
         x: root.safe-area-insets.left + 14px;
@@ -154,6 +157,26 @@ export component MainWindow inherits Window {
                         Button { text: "Resume"; clicked => { root.manage-job("resume", job-name.text, "", ""); } }
                         Button { text: "Remove"; clicked => { root.manage-job("remove", job-name.text, "", ""); } }
                     }
+                }
+                if root.resource-view == "skills" : VerticalBox {
+                    skill-query := LineEdit { placeholder-text: "Search or skill identifier"; }
+                    HorizontalBox {
+                        Button { text: "Search"; clicked => { root.skill-action("search", skill-query.text); } }
+                        Button { text: "Browse"; clicked => { root.skill-action("browse", ""); } }
+                        Button { text: "Inspect"; clicked => { root.skill-action("inspect", skill-query.text); } }
+                        Button { text: "Install"; clicked => { root.skill-action("install", skill-query.text); } }
+                    }
+                }
+                if root.resource-view == "tools" : VerticalBox {
+                    tool-name := LineEdit { placeholder-text: "Toolset name"; }
+                    HorizontalBox {
+                        Button { text: "Enable"; clicked => { root.tool-action("enable", tool-name.text); } }
+                        Button { text: "Disable"; clicked => { root.tool-action("disable", tool-name.text); } }
+                    }
+                }
+                if root.resource-view == "mcp" : VerticalBox {
+                    server-name := LineEdit { placeholder-text: "MCP server name"; }
+                    Button { text: "Test connection"; clicked => { root.mcp-test(server-name.text); } }
                 }
                 ScrollView {
                     vertical-stretch: 1;

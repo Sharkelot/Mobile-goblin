@@ -10,7 +10,7 @@ Target: the running Hermes dashboard reports version 0.22.5. Its generated OpenR
 | Human input | Approvals, clarification batches, sudo and secret values, vault unlock/code | Rich multi-select UI and vault save-login |
 | Agents and models | Select profile, model, reasoning effort and fast tier | Full profile management, prices, per-model capability controls |
 | Automation | List, add, pause, resume and remove cron jobs | Background work status and notifications |
-| Skills and tools | View installed skills, toolsets and MCP server inventory | Skill hub actions, tool configuration and MCP management |
+| Skills and tools | View installed skills and toolsets; skill hub search, browse, inspect and install; enable/disable toolsets; list and test MCP servers | Full MCP server management and richer tool configuration |
 | Voice and device | — | Voice, phone tools, Wear and push notifications |
 | Local data | No credential or transcript persistence | Keystore-backed credentials, offline cache and stable release signing |
 
