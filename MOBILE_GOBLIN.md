@@ -8,7 +8,7 @@ Mobile Goblin is an Android companion for a running Hermes Agent dashboard. It i
 2. Unzip it and open `androidApp-debug.apk` on your Android phone. Allow installation from your file manager if Android asks. Android 8.0 or later is required.
 3. On the first screen, enter the same Hermes dashboard address you use from the desktop, including the port when needed. Use a Tailscale address or HTTPS endpoint when away from home. Tap **Test connection**, then sign in with your Hermes dashboard account.
 
-With Android platform tools, installation is `adb install -r androidApp-debug.apk`. The package is `com.sharkelot.mobilegoblin`, so it can coexist with Kyllene. A new debug APK from this workflow installs over an earlier debug APK of this fork. Production release builds need a persistent release signing key to support upgrades reliably.
+With Android platform tools, installation is `adb install -r androidApp-debug.apk`. The package is `com.sharkelot.mobilegoblin`, so it can coexist with Kyllene. GitHub runners may generate different debug signing keys between runs. If Android rejects an update, uninstall the old Mobile Goblin APK first; this removes local app data. Production release builds need a persistent release signing key to support upgrades reliably.
 
 ## Desktop to mobile behavior
 

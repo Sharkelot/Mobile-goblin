@@ -19,7 +19,7 @@ Mobile Goblin is a native Android companion for a running [Hermes Agent](https:/
 3. Open the APK on your Android phone and follow its install prompts. Android 8.0 or newer is required.
 4. In Mobile Goblin, enter your Hermes dashboard address, test the connection and sign in. The phone must be able to reach your gateway over your local network, Tailscale or HTTPS.
 
-The APK is a debug-signed build. Keep installing APKs from this workflow to update it. A production release will need a persistent release signing key. See [setup and build details](MOBILE_GOBLIN.md).
+The APK is a debug-signed build. GitHub runners may generate different debug signing keys between runs, so Android may require you to uninstall an older Mobile Goblin APK before installing a newer one. This removes local app data, though gateway chats remain on the gateway. A production release will need a persistent release signing key. See [setup and build details](MOBILE_GOBLIN.md).
 
 ## What it does
 
