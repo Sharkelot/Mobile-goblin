@@ -342,6 +342,9 @@ async fn run_connection(
     let mut session_id: Option<String> = None;
     let mut draft = String::new();
     let mut streaming_row: Option<usize> = None;
+    let mut reasoning_row: Option<usize> = None;
+    let mut reasoning_draft = String::new();
+    let mut tool_rows: HashMap<String, usize> = HashMap::new();
     let mut next_id: u64 = 1;
     let mut pending_send: VecDeque<String> = VecDeque::new();
     let mut attach_id: Option<String> = None;
@@ -415,6 +418,9 @@ async fn run_connection(
                 }
                 Some(Command::OpenSession(stored_id)) => {
                     chat_rows.clear();
+                    tool_rows.clear();
+                    reasoning_row = None;
+                    reasoning_draft.clear();
                     render_chat(chat_rows);
                     draft.clear();
                     streaming_row = None;
@@ -433,6 +439,12 @@ async fn run_connection(
                                     let content = row.get("display_content").or_else(|| row.get("content"));
                                     let text = history_text(content);
                                     let kind = match role { "You" => "user", "Goblin" => "assistant", _ => "tool" };
+                                    if kind == "assistant" {
+                                        let reasoning = history_reasoning(row);
+                                        if !reasoning.is_empty() {
+                                            chat_rows.push(chat_row("reasoning", "Reasoning", reasoning));
+                                        }
+                                    }
                                     if !text.is_empty() {
                                         let label = if kind == "tool" { row.get("tool_name").and_then(Value::as_str).unwrap_or("Tool") } else { role };
                                         chat_rows.push(chat_row(kind, label, text));
@@ -462,6 +474,9 @@ async fn run_connection(
                     client_state.session_profile = None;
                     draft.clear();
                     streaming_row = None;
+                    reasoning_row = None;
+                    reasoning_draft.clear();
+                    tool_rows.clear();
                     chat_rows.clear();
                     render_chat(chat_rows);
                     on_ui(|ui| ui.set_session_id("".into()));
@@ -471,7 +486,6 @@ async fn run_connection(
                     if text.trim().is_empty() { continue; }
                     chat_rows.push(chat_row("user", "You", text.trim()));
                     render_chat(chat_rows);
-                    draft.clear();
                     if let Some(id) = &session_id {
                         let request_id = send_rpc(&mut sink, &mut next_id, "prompt.submit", json!({"session_id": id, "profile": client_state.session_profile, "text": text})).await?;
                         pending_prompts.insert(request_id);
@@ -553,6 +567,9 @@ async fn run_connection(
                     chat_rows.clear();
                     draft.clear();
                     streaming_row = None;
+                    reasoning_row = None;
+                    reasoning_draft.clear();
+                    tool_rows.clear();
                     render_chat(chat_rows);
                     on_ui(move |ui| {
                         ui.set_session_id("".into());
@@ -692,13 +709,39 @@ async fn run_connection(
                                     "tool.start" => {
                                         let name = payload.get("name").and_then(Value::as_str).unwrap_or("Tool");
                                         status(format!("Using {name}…"));
-                                        chat_rows.push(chat_row("tool", name, "Running…"));
+                                        let detail = payload.get("context").or_else(|| payload.get("preview")).and_then(Value::as_str).unwrap_or_default();
+                                        let body = if detail.is_empty() { "Running…".to_owned() } else { format!("Running…\n{}", short_text(detail, 400)) };
+                                        chat_rows.push(chat_row("tool", name, body));
+                                        if let Some(id) = payload.get("tool_id").and_then(Value::as_str) {
+                                            tool_rows.insert(id.to_owned(), chat_rows.len() - 1);
+                                        }
                                         render_chat(chat_rows);
                                     }
                                     "tool.complete" => {
                                         status("Hermes is working…");
-                                        if let Some(row) = chat_rows.iter_mut().rev().find(|row| row.kind.as_str() == "tool" && row.body.as_str() == "Running…") {
-                                            row.body = "Finished".into();
+                                        let id = payload.get("tool_id").and_then(Value::as_str);
+                                        let index = match id {
+                                            Some(id) => tool_rows.remove(id),
+                                            None => chat_rows.iter().rposition(|row| row.kind.as_str() == "tool" && row.body.as_str().starts_with("Running…")),
+                                        };
+                                        let body = tool_summary(&payload);
+                                        if let Some(row) = index.and_then(|index| chat_rows.get_mut(index)) {
+                                            row.body = body.into();
+                                        } else {
+                                            let name = payload.get("name").and_then(Value::as_str).unwrap_or("Tool");
+                                            chat_rows.push(chat_row("tool", name, body));
+                                        }
+                                        render_chat(chat_rows);
+                                    }
+                                    "reasoning.delta" | "reasoning.available" => {
+                                        if let Some(chunk) = payload.get("text").and_then(Value::as_str) {
+                                            reasoning_draft.push_str(chunk);
+                                            if reasoning_row.is_none() {
+                                                chat_rows.push(chat_row("reasoning", "Reasoning", &reasoning_draft));
+                                                reasoning_row = Some(chat_rows.len() - 1);
+                                            } else if let Some(row) = reasoning_row.and_then(|index| chat_rows.get_mut(index)) {
+                                                row.body = reasoning_draft.clone().into();
+                                            }
                                             render_chat(chat_rows);
                                         }
                                     }
@@ -716,6 +759,8 @@ async fn run_connection(
                                     }
                                     "message.start" => {
                                         on_ui(|ui| ui.set_busy(true));
+                                        reasoning_row = None;
+                                        reasoning_draft.clear();
                                         if streaming_row.is_none() {
                                             chat_rows.push(chat_row("assistant", "Goblin", "Thinking…"));
                                             streaming_row = Some(chat_rows.len() - 1);
@@ -737,9 +782,37 @@ async fn run_connection(
                                             render_chat(chat_rows);
                                         }
                                         streaming_row = None;
+                                        reasoning_row = None;
+                                        reasoning_draft.clear();
                                         status("Ready");
                                     }
-                                    "error" => status(format!("Hermes error: {}", payload.get("message").and_then(Value::as_str).unwrap_or("unknown"))),
+                                    "message.interim" => {
+                                        if payload.get("already_streamed").and_then(Value::as_bool) != Some(true) {
+                                            if let Some(text) = payload.get("text").and_then(Value::as_str) {
+                                                draft.push_str(text);
+                                                draft.push_str("\n\n");
+                                                if let Some(row) = streaming_row.and_then(|index| chat_rows.get_mut(index)) {
+                                                    row.body = draft.clone().into();
+                                                } else {
+                                                    chat_rows.push(chat_row("assistant", "Goblin", &draft));
+                                                    streaming_row = Some(chat_rows.len() - 1);
+                                                }
+                                                render_chat(chat_rows);
+                                            }
+                                        }
+                                    }
+                                    "notice" => {
+                                        if let Some(message) = payload.get("message").and_then(Value::as_str).filter(|text| !text.trim().is_empty()) {
+                                            chat_rows.push(chat_row("notice", "Notice", message));
+                                            render_chat(chat_rows);
+                                        }
+                                    }
+                                    "error" => {
+                                        let message = payload.get("message").and_then(Value::as_str).unwrap_or("unknown");
+                                        status(format!("Hermes error: {message}"));
+                                        chat_rows.push(chat_row("notice", "Hermes error", message));
+                                        render_chat(chat_rows);
+                                    }
                                     _ => {}
                                 }
                             }
@@ -783,6 +856,9 @@ async fn run_connection(
                                         *restore_id = None;
                                         chat_rows.clear();
                                         streaming_row = None;
+                                        reasoning_row = None;
+                                        reasoning_draft.clear();
+                                        tool_rows.clear();
                                         render_chat(chat_rows);
                                         on_ui(|ui| ui.set_session_id("".into()));
                                         status("Chat archived");
@@ -945,6 +1021,54 @@ fn history_text(content: Option<&Value>) -> String {
             .join("\n"),
         _ => String::new(),
     }
+}
+
+fn history_reasoning(row: &Value) -> String {
+    let base = row
+        .get("display_reasoning")
+        .or_else(|| row.get("reasoning"))
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let mut parts = Vec::new();
+    if !base.trim().is_empty() {
+        parts.push(base.trim().to_owned());
+    }
+    if let Some(commentary) = row.get("display_commentary").and_then(Value::as_array) {
+        for item in commentary.iter().filter_map(Value::as_str) {
+            let item = item.trim();
+            if !item.is_empty() && !parts.iter().any(|existing| existing.contains(item)) {
+                parts.push(item.to_owned());
+            }
+        }
+    }
+    parts.join("\n\n")
+}
+
+fn short_text(value: &str, limit: usize) -> String {
+    let mut chars = value.trim().chars();
+    let preview: String = chars.by_ref().take(limit).collect();
+    if chars.next().is_some() {
+        format!("{preview}…")
+    } else {
+        preview
+    }
+}
+
+fn tool_summary(payload: &Value) -> String {
+    let failed = payload
+        .get("result")
+        .and_then(|result| result.get("is_error").or_else(|| result.get("error")))
+        .is_some_and(|value| {
+            value.as_bool() == Some(true) || value.as_str().is_some_and(|text| !text.is_empty())
+        });
+    let summary = payload
+        .get("summary")
+        .and_then(Value::as_str)
+        .filter(|text| !text.trim().is_empty())
+        .or_else(|| payload.get("result_text").and_then(Value::as_str))
+        .unwrap_or(if failed { "Tool failed" } else { "Finished" });
+    let prefix = if failed { "Failed: " } else { "" };
+    format!("{prefix}{}", short_text(summary, 500))
 }
 
 fn present_sessions(page: &Value, field: &str) -> usize {
@@ -1244,7 +1368,7 @@ pub fn main() {
 
 #[cfg(test)]
 mod tests {
-    use super::history_text;
+    use super::{history_reasoning, history_text, short_text, tool_summary};
     use serde_json::json;
 
     #[test]
@@ -1258,5 +1382,28 @@ mod tests {
             history_text(Some(&content)),
             "What is in this picture?\n[Image attachment]\nPlease be concise."
         );
+    }
+
+    #[test]
+    fn history_prefers_display_reasoning_without_repeating_commentary() {
+        let row = json!({
+            "reasoning": "legacy",
+            "display_reasoning": "Plan\nReview",
+            "display_commentary": ["Review", "Done"]
+        });
+        assert_eq!(history_reasoning(&row), "Plan\nReview\n\nDone");
+    }
+
+    #[test]
+    fn tool_summary_uses_gateway_summary_and_bounds_output() {
+        assert_eq!(
+            tool_summary(&json!({"summary":"Finished 4 files"})),
+            "Finished 4 files"
+        );
+        assert_eq!(
+            tool_summary(&json!({"result":{"error":"no access"},"summary":"Denied"})),
+            "Failed: Denied"
+        );
+        assert_eq!(short_text("ééé", 2), "éé…");
     }
 }

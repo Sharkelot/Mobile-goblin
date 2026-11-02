@@ -22,7 +22,7 @@ The Kotlin source has a gateway chooser and sign-in route, chat with a sessions 
 
 The largest missing blocks are:
 
-1. **Conversation UI:** message and basic tool rows are now separate; rich tool cards, markdown, media, attachments, voice, find-in-chat, and deep history paging remain.
+1. **Conversation UI:** message, reasoning, notice, and basic tool rows are now separate; rich expandable tool cards, markdown, media, attachments, voice, find-in-chat, and deep history paging remain.
 2. **Android runtime:** foreground chat and voice services, notifications/actions, phone tools, Wear, assist, and background recovery.
 3. **App data and navigation:** multiple gateways, bot roster, rooms, inbox, settings, offline cache, and secure credential persistence.
 
