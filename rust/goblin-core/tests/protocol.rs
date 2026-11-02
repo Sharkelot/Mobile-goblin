@@ -85,3 +85,12 @@ fn rejects_malformed_frames() {
         Err(GoblinError::InvalidFrame(_))
     ));
 }
+
+#[test]
+fn encodes_session_id_in_history_path() {
+    let gateway = GatewayUrl::parse("https://example.com/hermes").unwrap();
+    assert_eq!(
+        gateway.session_messages_url("a/b c").unwrap().as_str(),
+        "https://example.com/hermes/api/sessions/a%2Fb%20c/messages"
+    );
+}

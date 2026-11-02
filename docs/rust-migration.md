@@ -8,10 +8,10 @@
 
 ## Implemented in Rust
 
-- `goblin-core`: URL normalization, private-network classification, REST status/password login/WS tickets, JSON-RPC framing, and tests.
-- `goblin-app`: native Slint Android UI, goblin art, sign-in, ticketed WebSocket, create/send/new-chat, recent-session browsing and resume, stored transcript display, reply streaming, and visible connection/error state.
+- `goblin-core`: URL normalization, private-network classification, REST status/password login/WS tickets, profile-scoped session reads, JSON-RPC framing, typed human-input requests, and tests.
+- `goblin-app`: native Slint Android UI, goblin art, sign-in, ticketed WebSocket, create/send/new-chat, recent-session browsing and resume, stored transcript display, reply streaming, profile/model selection, reasoning and fast-tier controls, stop and steer, approvals, clarification and secret prompts, heartbeat checks, reconnection and session resume, and visible connection/error state.
 - Android package ID remains `com.sharkelot.mobilegoblin`; the GitHub APK workflow now builds the Rust app.
 
 ## Remaining parity work
 
-Approvals and clarification requests, profile/model selection, attachments, voice, phone tools, Wear, offline persistence, reconnect/resume, and persistent release signing remain to be ported. The Kotlin implementation remains in-tree as reference material. A successful Rust build does not establish end-to-end Hermes compatibility until tested against a live gateway and on Android hardware.
+Attachments, voice, phone tools, Wear, offline persistence, full settings and tool surfaces, and persistent release signing remain to be ported. The Kotlin implementation remains in-tree as reference material. A successful Rust build does not establish end-to-end Hermes compatibility until tested against a live gateway and on Android hardware.

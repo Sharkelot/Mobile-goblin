@@ -1,6 +1,8 @@
 //! Hermes dashboard protocol primitives for the Rust Mobile Goblin client.
 //! This crate powers the native Rust Android app.
 
+pub mod human;
+
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::net::IpAddr;
@@ -65,6 +67,16 @@ impl GatewayUrl {
             .join(&format!("{}/{path}", self.0.path().trim_end_matches('/')))?)
     }
 
+    pub fn session_messages_url(&self, session_id: &str) -> Result<Url, GoblinError> {
+        let mut url = self.resolve("api/sessions")?;
+        url.path_segments_mut()
+            .map_err(|_| {
+                GoblinError::InvalidFrame("Gateway URL cannot contain session path".into())
+            })?
+            .push(session_id)
+            .push("messages");
+        Ok(url)
+    }
     pub fn websocket_url(&self) -> Result<Url, GoblinError> {
         let mut url = self.resolve("api/ws")?;
         url.set_scheme(if self.0.scheme() == "https" {
@@ -190,34 +202,38 @@ impl GatewayClient {
         Ok(checked(response).await?.json().await?)
     }
 
-    pub async fn sessions(&self, limit: u32, offset: u32) -> Result<Value, GoblinError> {
-        let response = self
+    pub async fn sessions(
+        &self,
+        limit: u32,
+        offset: u32,
+        profile: Option<&str>,
+    ) -> Result<Value, GoblinError> {
+        let mut request = self
             .http
             .get(self.url.resolve("api/sessions")?)
-            .query(&[("limit", limit.min(100)), ("offset", offset)])
-            .send()
-            .await?;
+            .query(&[("limit", limit.min(100)), ("offset", offset)]);
+        if let Some(profile) = profile {
+            request = request.query(&[("profile", profile)]);
+        }
+        let response = request.send().await?;
         Ok(checked(response).await?.json().await?)
     }
 
-    pub async fn messages(&self, session_id: &str) -> Result<Value, GoblinError> {
-        let mut url = self.url.resolve("api/sessions/")?;
-        url.path_segments_mut()
-            .map_err(|_| {
-                GoblinError::InvalidFrame("Gateway URL cannot contain session path".into())
-            })?
-            .push(session_id)
-            .push("messages");
-        let response = self
-            .http
-            .get(url)
-            .query(&[
-                ("limit", "100"),
-                ("order", "latest"),
-                ("include_compacted", "true"),
-            ])
-            .send()
-            .await?;
+    pub async fn messages(
+        &self,
+        session_id: &str,
+        profile: Option<&str>,
+    ) -> Result<Value, GoblinError> {
+        let url = self.url.session_messages_url(session_id)?;
+        let mut request = self.http.get(url).query(&[
+            ("limit", "100"),
+            ("order", "latest"),
+            ("include_compacted", "true"),
+        ]);
+        if let Some(profile) = profile {
+            request = request.query(&[("profile", profile)]);
+        }
+        let response = request.send().await?;
         Ok(checked(response).await?.json().await?)
     }
 }

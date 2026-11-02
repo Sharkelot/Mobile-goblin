@@ -1,6 +1,8 @@
 import { Button, LineEdit, ScrollView, ListView, VerticalBox, HorizontalBox } from "std-widgets.slint";
 
 export struct SessionRow { id: string, title: string }
+export struct ModelRow { provider: string, id: string, label: string }
+export struct ProfileRow { name: string, label: string }
 
 export component MainWindow inherits Window {
     icon: @image-url("../resources/mipmap-hdpi/ic_launcher.png");
@@ -13,13 +15,41 @@ export component MainWindow inherits Window {
     in-out property <string> conversation: "";
     in-out property <string> session-id: "";
     in-out property <[SessionRow]> sessions: [];
+    in-out property <[ModelRow]> models: [];
+    in-out property <[ProfileRow]> profiles: [];
+    in-out property <string> selected-profile: "default";
+    in-out property <string> selected-model: "Profile default";
+    in-out property <bool> show-models: false;
+    in-out property <bool> show-profiles: false;
     in-out property <bool> show-sessions: false;
     in-out property <bool> connected: false;
+    in-out property <bool> busy: false;
+    in-out property <bool> show-settings: false;
+    in-out property <string> selected-effort: "Profile default";
+    in-out property <bool> fast: false;
+    in-out property <bool> input-pending: false;
+    in-out property <bool> input-approval: false;
+    in-out property <bool> input-masked: false;
+    in-out property <bool> allow-session: false;
+    in-out property <bool> allow-always: false;
+    in-out property <string> input-title: "";
+    in-out property <string> input-detail: "";
     callback connect(string, string, string);
     callback new-chat();
     callback refresh-sessions();
     callback open-session(string);
     callback send-message(string);
+    callback answer-choice(string);
+    callback answer-text(string);
+    callback cancel-input();
+    callback interrupt();
+    callback refresh-models();
+    callback select-model(string, string);
+    callback refresh-profiles();
+    callback select-profile(string);
+    callback set-effort(string);
+    callback set-fast(bool);
+    callback steer(string);
 
     VerticalBox {
         x: root.safe-area-insets.left + 14px;
@@ -45,6 +75,25 @@ export component MainWindow inherits Window {
 
         Text { text: root.status; color: root.connected ? #c6ff6c : #ffca8f; wrap: word-wrap; font-size: 13px; }
 
+        if root.input-pending : VerticalBox {
+            spacing: 7px;
+            Rectangle { height: 2px; background: #c6ff6c; }
+            Text { text: root.input-title; color: #c6ff6c; font-size: 18px; font-weight: 700; wrap: word-wrap; }
+            Text { text: root.input-detail; color: #ebf9f0; font-size: 14px; wrap: word-wrap; }
+            if root.input-approval : HorizontalBox {
+                Button { text: "Allow once"; clicked => { root.answer-choice("once"); } }
+                if root.allow-session : Button { text: "Session"; clicked => { root.answer-choice("session"); } }
+                if root.allow-always : Button { text: "Always"; clicked => { root.answer-choice("always"); } }
+                Button { text: "Deny"; clicked => { root.answer-choice("deny"); } }
+            }
+            if !root.input-approval : HorizontalBox {
+                answer := LineEdit { input-type: root.input-masked ? InputType.password : InputType.text; placeholder-text: "Your answer"; }
+                Button { text: "Submit"; clicked => { root.answer-text(answer.text); answer.text = ""; } }
+                Button { text: "Skip"; clicked => { root.cancel-input(); answer.text = ""; } }
+            }
+            Rectangle { height: 2px; background: #c6ff6c; }
+        }
+
         if !root.connected : VerticalBox {
             spacing: 8px;
             Text { text: "Dashboard address"; color: #d6e9df; }
@@ -66,6 +115,38 @@ export component MainWindow inherits Window {
                 Text { text: root.session-id == "" ? "New chat" : "Chat ready"; color: #d6e9df; font-size: 17px; }
                 Button { text: "Chats"; clicked => { root.show-sessions = !root.show-sessions; if (root.show-sessions) { root.refresh-sessions(); } } }
                 Button { text: "New chat"; clicked => { root.new-chat(); root.show-sessions = false; } }
+                Button { text: "Stop"; enabled: root.busy; clicked => { root.interrupt(); } }
+            }
+            HorizontalBox {
+                Text { text: "Agent: " + root.selected-profile; color: #a5bbb0; font-size: 12px; }
+                Button { text: "Agents"; clicked => { root.show-profiles = !root.show-profiles; root.show-models = false; if (root.show-profiles) { root.refresh-profiles(); } } }
+                Button { text: "Models"; clicked => { root.show-models = !root.show-models; root.show-profiles = false; if (root.show-models) { root.refresh-models(); } } }
+            }
+            Text { text: "Model: " + root.selected-model; color: #a5bbb0; font-size: 12px; }
+            Button { text: root.show-settings ? "Hide controls" : "Reasoning & speed"; clicked => { root.show-settings = !root.show-settings; } }
+            if root.show-settings : VerticalBox {
+                Text { text: "Reasoning: " + root.selected-effort; color: #d6e9df; font-size: 12px; }
+                HorizontalBox {
+                    Button { text: "Off"; clicked => { root.set-effort("none"); } }
+                    Button { text: "Low"; clicked => { root.set-effort("low"); } }
+                    Button { text: "Medium"; clicked => { root.set-effort("medium"); } }
+                    Button { text: "High"; clicked => { root.set-effort("high"); } }
+                }
+                Button { text: root.fast ? "Fast tier on" : "Fast tier off"; clicked => { root.fast = !root.fast; root.set-fast(root.fast); } }
+            }
+            if root.show-profiles : ListView {
+                height: 150px;
+                for profile in root.profiles: Button {
+                    text: profile.label;
+                    clicked => { root.select-profile(profile.name); root.show-profiles = false; }
+                }
+            }
+            if root.show-models : ListView {
+                height: 180px;
+                for model in root.models: Button {
+                    text: model.label;
+                    clicked => { root.select-model(model.provider, model.id); root.show-models = false; }
+                }
             }
             if root.show-sessions : ListView {
                 height: 180px;
@@ -85,6 +166,7 @@ export component MainWindow inherits Window {
                 }
             }
             draft := LineEdit { placeholder-text: "Message Hermes"; }
+            HorizontalBox {
             Button {
                 text: "Send";
                 enabled: draft.text != "";
@@ -92,6 +174,12 @@ export component MainWindow inherits Window {
                     root.send-message(draft.text);
                     draft.text = "";
                 }
+            }
+            Button {
+                text: "Steer";
+                enabled: root.busy && draft.text != "";
+                clicked => { root.steer(draft.text); draft.text = ""; }
+            }
             }
         }
     }
