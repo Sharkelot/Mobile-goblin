@@ -42,19 +42,32 @@ jobs:
       - name: Build installable Rust APK
         run: cargo apk2 build -p mobile-goblin --target aarch64-linux-android --lib
         working-directory: rust
+      - name: Align, sign, and verify Android APK
+        run: |
+          apk_path="$(find rust/target -type f -name '*.apk' -print -quit)"
+          test -n "$apk_path"
+          build_tools="$ANDROID_HOME/build-tools/35.0.0"
+          "$build_tools/zipalign" -P 16 -f 4 "$apk_path" "$RUNNER_TEMP/Mobile-Goblin-aligned.apk"
+          "$build_tools/apksigner" sign \
+            --ks "$HOME/.android/debug.keystore" \
+            --ks-key-alias androiddebugkey \
+            --ks-pass pass:android \
+            --key-pass pass:android \
+            --out "$RUNNER_TEMP/Mobile-Goblin.apk" \
+            "$RUNNER_TEMP/Mobile-Goblin-aligned.apk"
+          "$build_tools/apksigner" verify --verbose --print-certs "$RUNNER_TEMP/Mobile-Goblin.apk"
+          "$build_tools/zipalign" -c -P 16 4 "$RUNNER_TEMP/Mobile-Goblin.apk"
       - name: Upload Mobile Goblin APK
         uses: actions/upload-artifact@v4
         with:
           name: mobile-goblin-rust-apk
-          path: rust/target/**/*.apk
+          path: ${{ runner.temp }}/Mobile-Goblin.apk
           if-no-files-found: error
       - name: Publish direct APK download
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          apk_path="$(find rust/target -type f -name '*.apk' -print -quit)"
-          test -n "$apk_path"
-          cp "$apk_path" "$RUNNER_TEMP/Mobile-Goblin.apk"
+          test -s "$RUNNER_TEMP/Mobile-Goblin.apk"
           gh release create "build-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
             "$RUNNER_TEMP/Mobile-Goblin.apk" \
             --repo "$GITHUB_REPOSITORY" \
