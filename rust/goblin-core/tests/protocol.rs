@@ -94,3 +94,11 @@ fn encodes_session_id_in_history_path() {
         "https://example.com/hermes/api/sessions/a%2Fb%20c/messages"
     );
 }
+
+#[test]
+fn rejects_credentials_embedded_in_gateway_address() {
+    assert!(matches!(
+        GatewayUrl::parse("http://user:secret@example.com:9119"),
+        Err(GoblinError::CredentialsInUrl)
+    ));
+}

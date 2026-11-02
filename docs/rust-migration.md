@@ -8,7 +8,7 @@
 
 ## Implemented in Rust
 
-- `goblin-core`: URL normalization, private-network classification, REST status/password login/WS tickets, profile-scoped session reads, JSON-RPC framing, typed human-input requests, and tests.
+- `goblin-core`: URL normalization, private-network classification, REST status/password login/WS tickets, profile-scoped session reads, JSON-RPC framing, typed human-input requests, gateway URL credential rejection, and tests.
 - `goblin-app`: native Slint Android UI, goblin art, sign-in, ticketed WebSocket, create/send/new-chat, recent-session browsing and resume, stored transcript display, reply streaming, profile/model selection, reasoning and fast-tier controls, stop and steer, approvals, clarification and secret prompts, heartbeat checks, reconnection and session resume, and visible connection/error state.
 - Android package ID remains `com.sharkelot.mobilegoblin`; the GitHub APK workflow now builds the Rust app.
 

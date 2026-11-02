@@ -16,6 +16,8 @@ pub enum GoblinError {
     EmptyAddress,
     #[error("Gateway URL must use http or https")]
     UnsupportedScheme,
+    #[error("Gateway address must not contain a username or password")]
+    CredentialsInUrl,
     #[error("Gateway URL is invalid: {0}")]
     InvalidUrl(#[from] url::ParseError),
     #[error("Refusing to send a password over public HTTP")]
@@ -46,6 +48,9 @@ impl GatewayUrl {
         let mut url = Url::parse(&with_scheme)?;
         if !matches!(url.scheme(), "http" | "https") {
             return Err(GoblinError::UnsupportedScheme);
+        }
+        if !url.username().is_empty() || url.password().is_some() {
+            return Err(GoblinError::CredentialsInUrl);
         }
         if url.host_str().is_none() {
             return Err(GoblinError::InvalidFrame("Gateway URL has no host".into()));
