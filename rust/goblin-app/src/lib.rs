@@ -145,10 +145,11 @@ async fn run_connection(
     let mut conversation = String::new();
     let mut next_id: u64 = 1;
     let mut pending_send: Option<String> = None;
-    on_ui(|ui| ui.set_connected(true));
-    status("Connected to Hermes");
+    let mut heartbeat = tokio::time::interval(std::time::Duration::from_secs(15));
+    heartbeat.tick().await;
     loop {
         tokio::select! {
+            _ = heartbeat.tick() => sink.send(Message::Ping(Vec::new().into())).await?,
             command = rx.recv() => match command {
                 Some(Command::RefreshSessions) => {
                     match gateway.sessions(30, 0).await {
@@ -226,6 +227,8 @@ async fn run_connection(
                             Ok(RpcFrame::Event { kind, payload, .. }) => {
                                 match kind.as_str() {
                                     "gateway.ready" => {
+                                        on_ui(|ui| ui.set_connected(true));
+                                        status("Connected to Hermes");
                                         // This version does not yet render approval or secret prompts.
                                         send_rpc(&mut sink, &mut next_id, "client.capabilities", json!({"server_requests": false})).await?;
                                     }

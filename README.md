@@ -34,9 +34,9 @@ The app sends credentials only to the Hermes dashboard address you enter. It rej
 
 | Mascot | Android launcher art |
 |:---:|:---:|
-| <img src="docs/art/mobile-goblin-mascot.png" alt="Full Mobile Goblin mascot" width="220"> | <img src="androidApp/src/main/res/drawable-nodpi/mobile_goblin_launcher.png" alt="Mobile Goblin launcher artwork" width="220"> |
+| <img src="docs/art/mobile-goblin-mascot.png" alt="Full Mobile Goblin mascot" width="220"> | <img src="rust/goblin-app/resources/mipmap-hdpi/ic_launcher.png" alt="Mobile Goblin launcher artwork" width="220"> |
 
-These are the original Mobile Goblin images. The Android launcher, icon choices and watch app use the goblin artwork; themed icons and notifications use a simple goblin silhouette. Small in-app avatars use a matching vector mark.
+These are the original Mobile Goblin images. The Rust Android launcher and header use the goblin artwork.
 
 ## Build
 
@@ -46,7 +46,7 @@ The Android app is Rust and [Slint](https://slint.dev/). From the repository roo
 rustup target add aarch64-linux-android
 cargo install cargo-apk2 --version 1.4.2 --locked
 cd rust
-cargo test --workspace --lib
+cargo test -p goblin-core
 cargo apk2 build -p mobile-goblin --target aarch64-linux-android --lib
 ```
 
