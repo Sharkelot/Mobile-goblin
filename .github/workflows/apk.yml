@@ -1,0 +1,31 @@
+name: Android APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: jetbrains
+          java-version: "25"
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+      - uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
+      - name: Build installable APK
+        run: ./gradlew --no-daemon :androidApp:assembleDebug
+      - name: Upload Mobile Goblin APK
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: mobile-goblin-apk
+          path: androidApp/build/outputs/apk/debug/androidApp-debug.apk
+          if-no-files-found: error
