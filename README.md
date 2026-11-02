@@ -12,32 +12,23 @@
 
 Mobile Goblin is a native Android companion for a running [Hermes Agent](https://github.com/NousResearch/hermes-agent) dashboard. It connects to the same gateway you use on your desktop, so your chats, sessions and approvals follow you to your phone. It has its own package name (`com.sharkelot.mobilegoblin`) and installs beside Kyllene.
 
-## Get the APK
+## Get the Rust APK
 
-1. Open the [Android APK workflow](https://github.com/Sharkelot/Mobile-goblin/actions/workflows/apk.yml) and select the newest successful run.
-2. Under **Artifacts**, download **mobile-goblin-apk**. Unzip it to get `androidApp-debug.apk`.
-3. Open the APK on your Android phone and follow its install prompts. Android 8.0 or newer is required.
-4. In Mobile Goblin, enter your Hermes dashboard address, test the connection and sign in. The phone must be able to reach your gateway over your local network, Tailscale or HTTPS.
+Open the [Rust Android APK workflow](https://github.com/Sharkelot/Mobile-goblin/actions/workflows/apk.yml), choose the latest successful run, and download **mobile-goblin-rust-apk**. Unzip and install the APK on Android 8.0 or newer. The new Rust build uses the same package name as the Kotlin build; Android may require you to uninstall the Kotlin APK first because their debug signing keys differ.
 
-The APK is a debug-signed build. GitHub runners may generate different debug signing keys between runs, so Android may require you to uninstall an older Mobile Goblin APK before installing a newer one. This removes local app data, though gateway chats remain on the gateway. A production release will need a persistent release signing key. See [setup and build details](MOBILE_GOBLIN.md).
+Enter the URL of your running Hermes dashboard, plus your username and password when the gateway requires them. The phone needs a route to the gateway through your LAN, Tailscale, or HTTPS. Public HTTP sign-in is blocked.
 
-## What it does
+## Current Rust build
 
-| | |
-|---|---|
-| **Chat** | Stream replies, inspect reasoning and tool activity, send files and photos, dictate or use voice chat. |
-| **Stay in control** | Answer approvals and questions, view background work, and receive reply notifications. |
-| **Pick up on mobile** | Open the same gateway sessions as your desktop. Switch profiles, models and chats without copying conversation history. |
-| **Use phone features** | Enable optional phone tools and permissions from Settings when you want Hermes to use them. |
-| **Keep working offline** | Read the app's cached recent chats when the gateway is temporarily unreachable. |
+The replacement uses a native Rust UI and Rust Hermes protocol client. It can check the dashboard, sign in, open the live WebSocket, start a chat, stream a reply, and start a new chat. It includes the goblin artwork in the interface and launcher.
 
-Mobile Goblin talks to the **Hermes gateway**, not directly to a desktop window. Keep `hermes dashboard` running and reachable from the phone. Sign-in happens on your gateway; do not put credentials in this repository.
+This first Rust APK does **not** yet support existing-session browsing, approval prompts, voice, phone tools, Wear, file attachments, or offline storage. Those Kotlin-era features remain in the repository as reference code but are no longer built into the APK. The Rust app does not save credentials locally; enter them again after restarting.
+
+The GitHub Actions APK is debug signed. Different build runs may use different signing keys, so upgrading may require an uninstall. Chats live on the Hermes gateway, but local app state is lost on uninstall.
 
 ## Privacy
 
-Your sign-in and offline chat cache are encrypted with a key held in the Android Keystore, and app data is excluded from backups. There are no analytics or tracking services. Core chat traffic goes to your Hermes gateway.
-
-Optional features may make other connections: update checks query GitHub; tapped images and enabled link previews fetch public web content; remote push notifications use ntfy when you install and enable its gateway plugin. Phone tools start off. If you enable one, data it reads goes to the gateway agent in the chat that requested it. Health Connect data is read only after you grant access; Mobile Goblin does not write health data.
+The app sends credentials only to the Hermes dashboard address you enter. It rejects password sign-in over public HTTP. It stores no credentials or chat history on the phone and includes no analytics.
 
 ## Goblin art
 
@@ -49,13 +40,21 @@ These are the original Mobile Goblin images. The Android launcher, icon choices 
 
 ## Build
 
-The project uses Kotlin Multiplatform and Jetpack Compose. With a JDK 25 and Android SDK API 37.1 installed, run:
+The Android app is Rust and [Slint](https://slint.dev/). From the repository root, install Rust, the Android SDK/NDK and `cargo-apk2`, then run:
 
 ```sh
-./gradlew :androidApp:assembleDebug
+rustup target add aarch64-linux-android
+cargo install cargo-apk2 --version 1.4.2 --locked
+cd rust
+cargo test --workspace --lib
+cargo apk2 build -p mobile-goblin --target aarch64-linux-android --lib
 ```
 
-The output is `androidApp/build/outputs/apk/debug/androidApp-debug.apk`. GitHub Actions builds and uploads the same APK on each push to `main`.
+The APK is produced under `rust/target/aarch64-linux-android/debug/apk/`. GitHub Actions runs the same build on every push to `main`.
+
+## Migration evidence
+
+See [the Rust migration notes](docs/rust-migration.md) for the shipped APK inspection, protocol sources, implemented scope, and remaining work.
 
 ## Upstream and license
 

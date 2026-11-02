@@ -14,3 +14,5 @@ captures/
 # Local release signing (see androidApp/build.gradle.kts)
 keystore.properties
 *.jks
+
+/rust/target

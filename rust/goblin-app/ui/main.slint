@@ -1,0 +1,84 @@
+import { Button, LineEdit, ScrollView, VerticalBox, HorizontalBox } from "std-widgets.slint";
+
+export component MainWindow inherits Window {
+    icon: @image-url("../resources/mipmap-hdpi/ic_launcher.png");
+    title: "Mobile Goblin";
+    background: #0c1212;
+    preferred-width: 390px;
+    preferred-height: 820px;
+
+    in-out property <string> status: "Enter your Hermes dashboard address";
+    in-out property <string> conversation: "";
+    in-out property <string> session-id: "";
+    in-out property <bool> connected: false;
+    callback connect(string, string, string);
+    callback new-chat();
+    callback send-message(string);
+
+    VerticalBox {
+        x: root.safe-area-insets.left + 14px;
+        y: root.safe-area-insets.top + 14px;
+        width: root.width - root.safe-area-insets.left - root.safe-area-insets.right - 28px;
+        height: root.height - root.safe-area-insets.top - root.safe-area-insets.bottom - 28px;
+        spacing: 10px;
+
+        HorizontalBox {
+            height: 70px;
+            spacing: 10px;
+            Image {
+                source: @image-url("../resources/mipmap-hdpi/ic_launcher.png");
+                width: 60px;
+                height: 60px;
+                image-fit: contain;
+            }
+            VerticalBox {
+                Text { text: "MOBILE GOBLIN"; color: #c6ff6c; font-size: 23px; font-weight: 800; }
+                Text { text: "Hermes in your pocket"; color: #a5bbb0; font-size: 14px; }
+            }
+        }
+
+        Text { text: root.status; color: root.connected ? #c6ff6c : #ffca8f; wrap: word-wrap; font-size: 13px; }
+
+        if !root.connected : VerticalBox {
+            spacing: 8px;
+            Text { text: "Dashboard address"; color: #d6e9df; }
+            gateway := LineEdit { placeholder-text: "http://your-tailnet-host:9119"; }
+            Text { text: "Username"; color: #d6e9df; }
+            username := LineEdit { placeholder-text: "Hermes username"; }
+            Text { text: "Password"; color: #d6e9df; }
+            password := LineEdit { input-type: InputType.password; placeholder-text: "Hermes password"; }
+            Button {
+                text: "Connect to Hermes";
+                clicked => { root.connect(gateway.text, username.text, password.text); }
+            }
+            Text { text: "Use HTTPS for public hosts. HTTP is allowed on private networks."; color: #90a99e; wrap: word-wrap; font-size: 12px; }
+        }
+
+        if root.connected : VerticalBox {
+            spacing: 9px;
+            HorizontalBox {
+                Text { text: root.session-id == "" ? "New chat" : "Chat ready"; color: #d6e9df; font-size: 17px; }
+                Button { text: "New chat"; clicked => { root.new-chat(); } }
+            }
+            ScrollView {
+                vertical-stretch: 1;
+                Text {
+                    text: root.conversation == "" ? "Ask Hermes anything." : root.conversation;
+                    color: #ebf9f0;
+                    wrap: word-wrap;
+                    font-size: 16px;
+                    width: parent.width - 22px;
+                }
+            }
+            draft := LineEdit { placeholder-text: "Message Hermes"; }
+            Button {
+                text: "Send";
+                enabled: draft.text != "";
+                clicked => {
+                    root.send-message(draft.text);
+                    draft.text = "";
+                }
+            }
+        }
+    }
+}
