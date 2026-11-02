@@ -20,9 +20,9 @@ Enter the URL of your running Hermes dashboard, plus your username and password 
 
 ## Current Rust build
 
-The replacement uses a native Rust UI and Rust Hermes protocol client. It can check the dashboard, sign in, open the live WebSocket, start a chat, stream a reply, and start a new chat. It includes the goblin artwork in the interface and launcher.
+The replacement uses a native Rust UI and Rust Hermes protocol client. It can check the dashboard, sign in, open the live WebSocket, start a chat, stream a reply, reopen a recent gateway session with its stored transcript, and start a new chat. It includes the goblin artwork in the interface and launcher.
 
-This first Rust APK does **not** yet support existing-session browsing, approval prompts, voice, phone tools, Wear, file attachments, or offline storage. Those Kotlin-era features remain in the repository as reference code but are no longer built into the APK. The Rust app does not save credentials locally; enter them again after restarting.
+This first Rust APK does **not** yet support approval prompts, voice, phone tools, Wear, file attachments, or offline storage. Those Kotlin-era features remain in the repository as reference code but are no longer built into the APK. The Rust app does not save credentials locally; enter them again after restarting.
 
 The GitHub Actions APK is debug signed. Different build runs may use different signing keys, so upgrading may require an uninstall. Chats live on the Hermes gateway, but local app state is lost on uninstall.
 

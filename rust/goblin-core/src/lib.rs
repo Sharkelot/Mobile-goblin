@@ -199,6 +199,27 @@ impl GatewayClient {
             .await?;
         Ok(checked(response).await?.json().await?)
     }
+
+    pub async fn messages(&self, session_id: &str) -> Result<Value, GoblinError> {
+        let mut url = self.url.resolve("api/sessions/")?;
+        url.path_segments_mut()
+            .map_err(|_| {
+                GoblinError::InvalidFrame("Gateway URL cannot contain session path".into())
+            })?
+            .push(session_id)
+            .push("messages");
+        let response = self
+            .http
+            .get(url)
+            .query(&[
+                ("limit", "100"),
+                ("order", "latest"),
+                ("include_compacted", "true"),
+            ])
+            .send()
+            .await?;
+        Ok(checked(response).await?.json().await?)
+    }
 }
 
 async fn checked(response: reqwest::Response) -> Result<reqwest::Response, GoblinError> {

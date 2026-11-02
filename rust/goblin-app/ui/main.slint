@@ -1,4 +1,6 @@
-import { Button, LineEdit, ScrollView, VerticalBox, HorizontalBox } from "std-widgets.slint";
+import { Button, LineEdit, ScrollView, ListView, VerticalBox, HorizontalBox } from "std-widgets.slint";
+
+export struct SessionRow { id: string, title: string }
 
 export component MainWindow inherits Window {
     icon: @image-url("../resources/mipmap-hdpi/ic_launcher.png");
@@ -10,9 +12,13 @@ export component MainWindow inherits Window {
     in-out property <string> status: "Enter your Hermes dashboard address";
     in-out property <string> conversation: "";
     in-out property <string> session-id: "";
+    in-out property <[SessionRow]> sessions: [];
+    in-out property <bool> show-sessions: false;
     in-out property <bool> connected: false;
     callback connect(string, string, string);
     callback new-chat();
+    callback refresh-sessions();
+    callback open-session(string);
     callback send-message(string);
 
     VerticalBox {
@@ -58,7 +64,15 @@ export component MainWindow inherits Window {
             spacing: 9px;
             HorizontalBox {
                 Text { text: root.session-id == "" ? "New chat" : "Chat ready"; color: #d6e9df; font-size: 17px; }
-                Button { text: "New chat"; clicked => { root.new-chat(); } }
+                Button { text: "Chats"; clicked => { root.show-sessions = !root.show-sessions; if (root.show-sessions) { root.refresh-sessions(); } } }
+                Button { text: "New chat"; clicked => { root.new-chat(); root.show-sessions = false; } }
+            }
+            if root.show-sessions : ListView {
+                height: 180px;
+                for session in root.sessions: Button {
+                    text: session.title;
+                    clicked => { root.open-session(session.id); root.show-sessions = false; }
+                }
             }
             ScrollView {
                 vertical-stretch: 1;

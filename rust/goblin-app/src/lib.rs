@@ -21,6 +21,8 @@ enum Command {
         password: String,
     },
     NewChat,
+    RefreshSessions,
+    OpenSession(String),
     Send(String),
 }
 
@@ -70,6 +72,14 @@ fn start() -> Result<(), slint::PlatformError> {
             username: username.to_string(),
             password: password.to_string(),
         });
+    });
+    let sender = commands.clone();
+    ui.on_refresh_sessions(move || {
+        let _ = sender.send(Command::RefreshSessions);
+    });
+    let sender = commands.clone();
+    ui.on_open_session(move |id| {
+        let _ = sender.send(Command::OpenSession(id.to_string()));
     });
     let sender = commands.clone();
     ui.on_new_chat(move || {
@@ -140,6 +150,51 @@ async fn run_connection(
     loop {
         tokio::select! {
             command = rx.recv() => match command {
+                Some(Command::RefreshSessions) => {
+                    match gateway.sessions(30, 0).await {
+                        Ok(page) => {
+                            let rows: Vec<(String, String)> = page.get("sessions").and_then(Value::as_array)
+                                .into_iter().flatten().filter_map(|item| {
+                                    let id = item.get("id")?.as_str()?.to_owned();
+                                    let title = item.get("title").or_else(|| item.get("preview"))
+                                        .and_then(Value::as_str).unwrap_or("Untitled chat")
+                                        .lines().next().unwrap_or("Untitled chat").to_owned();
+                                    Some((id, title))
+                                }).collect();
+                            on_ui(move |ui| {
+                                let model = rows.into_iter().map(|(id, title)| SessionRow { id: id.into(), title: title.into() }).collect::<Vec<_>>();
+                                ui.set_sessions(slint::ModelRc::new(slint::VecModel::from(model)));
+                            });
+                            status("Choose a chat");
+                        }
+                        Err(error) => status(format!("Cannot load chats: {error}")),
+                    }
+                }
+                Some(Command::OpenSession(stored_id)) => {
+                    conversation.clear();
+                    draft.clear();
+                    session_id = None;
+                    pending_send = None;
+                    match gateway.messages(&stored_id).await {
+                        Ok(page) => {
+                            if let Some(messages) = page.get("messages").and_then(Value::as_array) {
+                                for row in messages {
+                                    if row.get("display_kind").and_then(Value::as_str) == Some("hidden") { continue; }
+                                    let role = match row.get("role").and_then(Value::as_str) {
+                                        Some("user") => "You", Some("assistant") => "Goblin", _ => continue,
+                                    };
+                                    let content = row.get("display_content").or_else(|| row.get("content"));
+                                    let text = content.and_then(Value::as_str).unwrap_or_default();
+                                    if !text.is_empty() { conversation.push_str(&format!("{role}: {text}\n\n")); }
+                                }
+                            }
+                            transcript(conversation.clone());
+                        }
+                        Err(error) => status(format!("Cannot load history: {error}")),
+                    }
+                    send_rpc(&mut sink, &mut next_id, "session.resume", json!({"session_id": stored_id, "source": "mobile-goblin", "cols": 80, "omit_messages": true})).await?;
+                    status("Opening chat…");
+                }
                 Some(Command::NewChat) => {
                     session_id = None;
                     draft.clear();
