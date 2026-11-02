@@ -13,6 +13,7 @@ export component MainWindow inherits Window {
 
     in-out property <string> status: "Enter your Hermes dashboard address";
     in-out property <string> conversation: "";
+    in-out property <string> composer-text: "";
     in-out property <string> session-id: "";
     in-out property <[SessionRow]> sessions: [];
     in-out property <[ModelRow]> models: [];
@@ -22,6 +23,7 @@ export component MainWindow inherits Window {
     in-out property <bool> show-models: false;
     in-out property <bool> show-profiles: false;
     in-out property <bool> show-sessions: false;
+    in-out property <bool> show-menu: false;
     in-out property <bool> connected: false;
     in-out property <bool> busy: false;
     in-out property <bool> show-settings: false;
@@ -163,24 +165,31 @@ export component MainWindow inherits Window {
             spacing: 9px;
             HorizontalBox {
                 Text { text: root.session-id == "" ? "New chat" : "Chat ready"; color: #d6e9df; font-size: 17px; }
-                Button { text: "Chats"; clicked => { root.show-sessions = !root.show-sessions; if (root.show-sessions) { root.refresh-sessions(); } } }
-                Button { text: "New chat"; clicked => { root.new-chat(); root.show-sessions = false; } }
+                Button { text: "Menu"; clicked => { root.show-menu = !root.show-menu; } }
+                Button { text: "New"; clicked => { root.new-chat(); root.show-sessions = false; root.resource-view = ""; root.show-menu = false; } }
                 Button { text: "Stop"; enabled: root.busy; clicked => { root.interrupt(); } }
             }
-            HorizontalBox {
+            if root.show-menu : ScrollView {
+                height: 270px;
+                menu-items := VerticalBox {
+                    width: parent.width - 8px;
+                    spacing: 5px;
+                    Button { text: "Chats"; clicked => { root.resource-view = ""; root.show-sessions = true; root.refresh-sessions(); root.show-menu = false; } }
+                    Button { text: "Scheduled jobs"; clicked => { root.resource-view = "jobs"; root.load-resource("jobs"); root.show-menu = false; } }
+                    Button { text: "Skills"; clicked => { root.resource-view = "skills"; root.load-resource("skills"); root.show-menu = false; } }
+                    Button { text: "Toolsets"; clicked => { root.resource-view = "tools"; root.load-resource("tools"); root.show-menu = false; } }
+                    Button { text: "MCP servers"; clicked => { root.resource-view = "mcp"; root.load-resource("mcp"); root.show-menu = false; } }
+                    Button { text: "Chat settings"; clicked => { root.resource-view = ""; root.show-settings = true; root.show-menu = false; } }
+                }
+            }
+            if root.resource-view == "" : HorizontalBox {
                 Text { text: "Agent: " + root.selected-profile; color: #a5bbb0; font-size: 12px; }
                 Button { text: "Agents"; clicked => { root.show-profiles = !root.show-profiles; root.show-models = false; if (root.show-profiles) { root.refresh-profiles(); } } }
                 Button { text: "Models"; clicked => { root.show-models = !root.show-models; root.show-profiles = false; if (root.show-models) { root.refresh-models(); } } }
             }
-            Text { text: "Model: " + root.selected-model; color: #a5bbb0; font-size: 12px; }
-            HorizontalBox {
-                Button { text: "Jobs"; clicked => { root.resource-view = "jobs"; root.load-resource("jobs"); } }
-                Button { text: "Skills"; clicked => { root.resource-view = "skills"; root.load-resource("skills"); } }
-                Button { text: "Tools"; clicked => { root.resource-view = "tools"; root.load-resource("tools"); } }
-                Button { text: "MCP"; clicked => { root.resource-view = "mcp"; root.load-resource("mcp"); } }
-            }
+            if root.resource-view == "" : Text { text: "Model: " + root.selected-model; color: #a5bbb0; font-size: 12px; }
             if root.resource-view != "" : VerticalBox {
-                height: 300px;
+                vertical-stretch: 1;
                 spacing: 5px;
                 HorizontalBox {
                     Text { text: root.resource-view; color: #c6ff6c; font-size: 17px; }
@@ -223,8 +232,8 @@ export component MainWindow inherits Window {
                     Text { text: root.resource-content; color: #ebf9f0; wrap: word-wrap; font-size: 13px; width: parent.width - 22px; }
                 }
             }
-            Button { text: root.show-settings ? "Hide controls" : "Reasoning & speed"; clicked => { root.show-settings = !root.show-settings; } }
-            if root.show-settings : VerticalBox {
+            if root.resource-view == "" : Button { text: root.show-settings ? "Hide controls" : "Reasoning & speed"; clicked => { root.show-settings = !root.show-settings; } }
+            if root.resource-view == "" && root.show-settings : VerticalBox {
                 Text { text: "Reasoning: " + root.selected-effort; color: #d6e9df; font-size: 12px; }
                 HorizontalBox {
                     Button { text: "Off"; clicked => { root.set-effort("none"); } }
@@ -234,28 +243,28 @@ export component MainWindow inherits Window {
                 }
                 Button { text: root.fast ? "Fast tier on" : "Fast tier off"; clicked => { root.fast = !root.fast; root.set-fast(root.fast); } }
             }
-            if root.show-profiles : ListView {
+            if root.resource-view == "" && root.show-profiles : ListView {
                 height: 150px;
                 for profile in root.profiles: Button {
                     text: profile.label;
                     clicked => { root.select-profile(profile.name); root.show-profiles = false; }
                 }
             }
-            if root.show-models : ListView {
+            if root.resource-view == "" && root.show-models : ListView {
                 height: 180px;
                 for model in root.models: Button {
                     text: model.label;
                     clicked => { root.select-model(model.provider, model.id); root.show-models = false; }
                 }
             }
-            if root.show-sessions : ListView {
+            if root.resource-view == "" && root.show-sessions : ListView {
                 height: 180px;
                 for session in root.sessions: Button {
                     text: session.title;
                     clicked => { root.open-session(session.id); root.show-sessions = false; }
                 }
             }
-            if root.session-id != "" : VerticalBox {
+            if root.resource-view == "" && root.session-id != "" : VerticalBox {
                 chat-title := LineEdit { placeholder-text: "Chat title or branch name"; }
                 HorizontalBox {
                     Button { text: "Rename"; clicked => { root.title-chat(chat-title.text); } }
@@ -263,7 +272,7 @@ export component MainWindow inherits Window {
                     Button { text: "Archive"; clicked => { root.archive-chat(); } }
                 }
             }
-            ScrollView {
+            if root.resource-view == "" : ScrollView {
                 vertical-stretch: 1;
                 Text {
                     text: root.conversation == "" ? "Ask Hermes anything." : root.conversation;
@@ -273,20 +282,20 @@ export component MainWindow inherits Window {
                     width: parent.width - 22px;
                 }
             }
-            draft := LineEdit { placeholder-text: "Message Hermes"; }
-            HorizontalBox {
+            if root.resource-view == "" : LineEdit { text <=> root.composer-text; placeholder-text: "Message Hermes"; }
+            if root.resource-view == "" : HorizontalBox {
             Button {
                 text: "Send";
-                enabled: draft.text != "";
+                enabled: root.composer-text != "";
                 clicked => {
-                    root.send-message(draft.text);
-                    draft.text = "";
+                    root.send-message(root.composer-text);
+                    root.composer-text = "";
                 }
             }
             Button {
                 text: "Steer";
-                enabled: root.busy && draft.text != "";
-                clicked => { root.steer(draft.text); draft.text = ""; }
+                enabled: root.busy && root.composer-text != "";
+                clicked => { root.steer(root.composer-text); root.composer-text = ""; }
             }
             }
         }

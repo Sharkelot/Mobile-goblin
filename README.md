@@ -25,7 +25,7 @@ Enter the URL of your running Hermes dashboard, plus your username and password 
 
 ## Current Rust build
 
-The replacement uses a native Rust UI and Rust Hermes protocol client. It supports dashboard sign-in, live chat, recent sessions, chat rename/archive/branch, profile and model selection, reasoning and fast-tier controls, stop and steer, agent approvals and questions, masked secret prompts, automatic reconnect, cron job management, skill search and installation, toolset controls, and MCP server connection tests. It includes the goblin artwork in the interface and launcher.
+The replacement uses a native Rust UI and Rust Hermes protocol client. It supports dashboard sign-in, live chat, recent sessions, chat rename/archive/branch, profile and model selection, reasoning and fast-tier controls, stop and steer, agent approvals and questions, masked secret prompts, automatic reconnect, cron job management, skill search and installation, toolset controls, and MCP server connection tests. A mobile menu separates chat from the management screens. It includes the goblin artwork in the interface and launcher.
 
 The Rust APK does **not** yet support voice, phone tools, Wear, file attachments, or offline storage. Those Kotlin-era features remain in the repository as reference code but are no longer built into the APK. The Rust app does not save credentials locally; enter them again after restarting.
 
@@ -59,7 +59,7 @@ The APK is produced under `rust/target/aarch64-linux-android/debug/apk/`. GitHub
 
 ## Migration evidence
 
-See [the Rust migration notes](docs/rust-migration.md) and [feature coverage](docs/feature-coverage.md) for the shipped APK inspection, protocol sources, implemented scope, and remaining work.
+See [the Rust migration notes](docs/rust-migration.md), [feature coverage](docs/feature-coverage.md), and [Kyllene APK parity audit](docs/kyllene-parity-audit.md) for the shipped APK inspection, implemented scope, and remaining work.
 
 ## Upstream and license
 

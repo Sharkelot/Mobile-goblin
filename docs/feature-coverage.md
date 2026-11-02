@@ -15,3 +15,5 @@ Target: the running Hermes dashboard reports version 0.22.5. Its generated OpenR
 | Local data | No credential or transcript persistence | Keystore-backed credentials, offline cache and stable release signing |
 
 The Kotlin source remains in-tree as reference for the unported Android integrations. The Rust APK is the active build. It does not change or restart the user's running Hermes gateway.
+
+See the [Kyllene shipped APK parity audit](kyllene-parity-audit.md) for the Android component gap and evidence behind this roadmap.
