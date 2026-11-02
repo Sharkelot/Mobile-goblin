@@ -28,6 +28,10 @@ The largest missing blocks are:
 
 Do not label a raw gateway RPC button as feature parity for a missing Android integration. Restore each block with an actual screen, gateway behavior, Android lifecycle handling, and device test before marking it complete.
 
+## Runtime check added after the static audit
+
+The [Android 35 emulator run](https://github.com/Sharkelot/Mobile-goblin/actions/runs/41465785809) built and installed a signed x86_64 APK, launched `android.app.NativeActivity`, kept the process alive, and saved screenshots and logcat. One screenshot shows the password field and Connect button above the open keyboard. This verifies install, launch and that login layout state on an emulator; it does not verify physical arm64 installation, gateway sign-in or a connected chat. The Capabilities page added later follows Kyllene's REST routes in source and has Rust protocol tests, but still needs a connected Android UI run.
+
 ## Reproduce the evidence
 
 The upstream APK is [Kyllene 0.14.0](https://github.com/Giton22/kyllene/releases/tag/v0.14.0). The provider is [jadx-headless-mcp 0.7.1](https://github.com/1013503897/jadx-headless-mcp/releases/tag/v0.7.1), SHA-256 `6e5eacf500b64292bfb73c49797c1958f6ee44646e43e868039ae7feb573ff75`.

@@ -57,6 +57,12 @@ enum Command {
     Steer(String),
     LoadResource(String),
     LoadInsights(u16),
+    LoadCapabilities(String),
+    ToggleCapability {
+        kind: String,
+        name: String,
+        enabled: bool,
+    },
     ManageJob {
         action: String,
         name: String,
@@ -249,6 +255,18 @@ fn start() -> Result<(), slint::PlatformError> {
     let sender = commands.clone();
     ui.on_load_insights(move |days| {
         let _ = sender.send(Command::LoadInsights(days.clamp(1, 365) as u16));
+    });
+    let sender = commands.clone();
+    ui.on_load_capabilities(move |kind| {
+        let _ = sender.send(Command::LoadCapabilities(kind.to_string()));
+    });
+    let sender = commands.clone();
+    ui.on_toggle_capability(move |kind, name, enabled| {
+        let _ = sender.send(Command::ToggleCapability {
+            kind: kind.to_string(),
+            name: name.to_string(),
+            enabled,
+        });
     });
     let sender = commands.clone();
     ui.on_manage_job(move |action, name, schedule, prompt| {
@@ -835,6 +853,53 @@ async fn run_connection(
                             on_ui(move |ui| ui.set_resource_content(content.into()));
                         }
                     }
+                }
+                Some(Command::LoadCapabilities(kind)) => {
+                    if !matches!(kind.as_str(), "skills" | "toolsets" | "mcp") { continue; }
+                    let gateway = gateway.clone();
+                    let profile = client_state.selected_profile.clone();
+                    on_ui(|ui| {
+                        ui.set_capability_rows(slint::ModelRc::new(slint::VecModel::from(Vec::<CapabilityRow>::new())));
+                        ui.set_resource_content("Loading capabilities…".into());
+                    });
+                    tokio::spawn(async move {
+                        let result = gateway.capabilities(&kind, profile.as_deref()).await;
+                        on_ui(move |ui| {
+                            if ui.get_resource_view().as_str() != "capabilities"
+                                || ui.get_capability_kind().as_str() != kind
+                                || ui.get_selected_profile().as_str() != profile.as_deref().unwrap_or("default") { return; }
+                            match result {
+                                Ok(value) => {
+                                    let rows = parse_capabilities(&kind, &value);
+                                    let message = if rows.is_empty() { "No capabilities in this category" } else { "Changes apply from the next chat" };
+                                    ui.set_capability_rows(slint::ModelRc::new(slint::VecModel::from(rows)));
+                                    ui.set_resource_content(message.into());
+                                }
+                                Err(error) => ui.set_resource_content(format!("Cannot load capabilities: {error}").into()),
+                            }
+                        });
+                    });
+                }
+                Some(Command::ToggleCapability { kind, name, enabled }) => {
+                    if !matches!(kind.as_str(), "skills" | "toolsets" | "mcp") || name.trim().is_empty() { continue; }
+                    let gateway = gateway.clone();
+                    let profile = client_state.selected_profile.clone();
+                    tokio::spawn(async move {
+                        match gateway.set_capability_enabled(&kind, &name, enabled, profile.as_deref()).await {
+                            Ok(()) => status(format!("{name} {}. Applies from the next chat.", if enabled { "enabled" } else { "disabled" })),
+                            Err(error) => status(format!("Cannot update {name}: {error}")),
+                        }
+                        let result = gateway.capabilities(&kind, profile.as_deref()).await;
+                        on_ui(move |ui| {
+                            if ui.get_resource_view().as_str() != "capabilities"
+                                || ui.get_capability_kind().as_str() != kind
+                                || ui.get_selected_profile().as_str() != profile.as_deref().unwrap_or("default") { return; }
+                            match result {
+                                Ok(value) => ui.set_capability_rows(slint::ModelRc::new(slint::VecModel::from(parse_capabilities(&kind, &value)))),
+                                Err(error) => ui.set_resource_content(format!("Cannot refresh capabilities: {error}").into()),
+                            }
+                        });
+                    });
                 }
                 Some(Command::ManageJob { action, name, schedule, prompt }) => {
                     if !matches!(action.as_str(), "add"|"pause"|"resume"|"remove") { continue; }
@@ -1504,6 +1569,94 @@ fn present_room_lines(lines: Vec<ChatRow>) {
     on_ui(move |ui| ui.set_room_lines(slint::ModelRc::new(slint::VecModel::from(lines))));
 }
 
+fn parse_capabilities(kind: &str, value: &Value) -> Vec<CapabilityRow> {
+    let items = if kind == "mcp" {
+        value.get("servers").and_then(Value::as_array)
+    } else {
+        value.as_array()
+    };
+    items
+        .into_iter()
+        .flatten()
+        .filter_map(|item| {
+            let name = item.get("name")?.as_str()?.to_owned();
+            let label = item
+                .get("label")
+                .and_then(Value::as_str)
+                .unwrap_or(&name)
+                .to_owned();
+            let description = item
+                .get("description")
+                .and_then(Value::as_str)
+                .unwrap_or("");
+            let enabled = item
+                .get("enabled")
+                .and_then(Value::as_bool)
+                .unwrap_or(kind != "toolsets");
+            let (detail, available) = match kind {
+                "skills" => {
+                    let source = item
+                        .get("provenance")
+                        .and_then(Value::as_str)
+                        .unwrap_or("agent");
+                    let category = item.get("category").and_then(Value::as_str).unwrap_or("");
+                    (format!("{} · {} · {}", source, category, description), true)
+                }
+                "toolsets" => {
+                    let configured = item
+                        .get("configured")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(true);
+                    let tools = item
+                        .get("tools")
+                        .and_then(Value::as_array)
+                        .map_or(0, Vec::len);
+                    (
+                        format!(
+                            "{}{} · {} tools",
+                            description,
+                            if configured { "" } else { " · needs setup" },
+                            tools
+                        ),
+                        configured,
+                    )
+                }
+                "mcp" => {
+                    let transport = item
+                        .get("transport")
+                        .and_then(Value::as_str)
+                        .unwrap_or("unknown");
+                    let target = item
+                        .get("url")
+                        .or_else(|| item.get("command"))
+                        .and_then(Value::as_str)
+                        .unwrap_or("");
+                    let plugin = item.get("plugin").and_then(Value::as_str);
+                    (
+                        format!(
+                            "{} · {}{}",
+                            transport,
+                            target,
+                            plugin
+                                .map(|p| format!(" · plugin: {p}"))
+                                .unwrap_or_default()
+                        ),
+                        plugin.is_none(),
+                    )
+                }
+                _ => return None,
+            };
+            Some(CapabilityRow {
+                name: name.into(),
+                label: label.into(),
+                detail: detail.into(),
+                enabled,
+                available,
+            })
+        })
+        .collect()
+}
+
 fn parse_hosted_rooms(value: &Value) -> (Vec<RoomRow>, HashMap<String, HashMap<String, String>>) {
     let mut members = HashMap::new();
     let mut rooms = Vec::new();
@@ -2157,6 +2310,34 @@ pub fn main() {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn capability_lists_follow_kyllene_rest_shapes() {
+        let skills = super::parse_capabilities(
+            "skills",
+            &serde_json::json!([
+                {"name":"research","enabled":false,"description":null,"provenance":"bundled"}
+            ]),
+        );
+        assert_eq!(skills.len(), 1);
+        assert!(!skills[0].enabled);
+        assert!(skills[0].available);
+        let toolsets = super::parse_capabilities(
+            "toolsets",
+            &serde_json::json!([
+                {"name":"browser","label":"Browser","configured":false,"enabled":false,"tools":["open"]}
+            ]),
+        );
+        assert_eq!(toolsets[0].label.as_str(), "Browser");
+        assert!(!toolsets[0].available);
+        let servers = super::parse_capabilities(
+            "mcp",
+            &serde_json::json!({"servers":[
+                {"name":"search","transport":"http","url":"https://example.test","enabled":true,"plugin":"provider"}
+            ]}),
+        );
+        assert_eq!(servers.len(), 1);
+        assert!(!servers[0].available);
+    }
     #[test]
     fn insights_use_billed_cost_and_show_gateway_breakdowns() {
         let report = serde_json::json!({

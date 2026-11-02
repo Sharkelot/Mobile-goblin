@@ -267,6 +267,66 @@ impl GatewayClient {
         Ok(checked(response).await?.json().await?)
     }
 
+    /// Lists the profile's Skills, Toolsets, or MCP servers using Kyllene's dashboard routes.
+    pub async fn capabilities(
+        &self,
+        kind: &str,
+        profile: Option<&str>,
+    ) -> Result<Value, GoblinError> {
+        let path = match kind {
+            "skills" => "api/skills",
+            "toolsets" => "api/tools/toolsets",
+            "mcp" => "api/mcp/servers",
+            _ => return Err(GoblinError::InvalidFrame("Unknown capability kind".into())),
+        };
+        let mut request = self.http.get(self.url.resolve(path)?);
+        if let Some(profile) = profile {
+            request = request.query(&[("profile", profile)]);
+        }
+        Ok(checked(request.send().await?).await?.json().await?)
+    }
+
+    /// Saves one switch to the selected profile. Hermes applies it from the next chat on.
+    pub async fn set_capability_enabled(
+        &self,
+        kind: &str,
+        name: &str,
+        enabled: bool,
+        profile: Option<&str>,
+    ) -> Result<(), GoblinError> {
+        let (method, path, body) = match kind {
+            "skills" => (
+                "skills",
+                "api/skills/toggle",
+                json!({"name": name, "enabled": enabled}),
+            ),
+            "toolsets" => (
+                "toolsets",
+                "api/tools/toolsets",
+                json!({"enabled": enabled}),
+            ),
+            "mcp" => ("mcp", "api/mcp/servers", json!({"enabled": enabled})),
+            _ => return Err(GoblinError::InvalidFrame("Unknown capability kind".into())),
+        };
+        let mut url = self.url.resolve(path)?;
+        if method != "skills" {
+            url.path_segments_mut()
+                .map_err(|_| GoblinError::InvalidFrame("Invalid capability path".into()))?
+                .push(name);
+            if method == "mcp" {
+                url.path_segments_mut()
+                    .map_err(|_| GoblinError::InvalidFrame("Invalid MCP path".into()))?
+                    .push("enabled");
+            }
+        }
+        let mut request = self.http.put(url).json(&body);
+        if let Some(profile) = profile {
+            request = request.query(&[("profile", profile)]);
+        }
+        checked(request.send().await?).await?;
+        Ok(())
+    }
+
     pub async fn messages(
         &self,
         session_id: &str,
