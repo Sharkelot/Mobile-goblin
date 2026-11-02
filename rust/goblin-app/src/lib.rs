@@ -7,7 +7,7 @@ use http::header::SEC_WEBSOCKET_PROTOCOL;
 use serde_json::{Value, json};
 use slint::ComponentHandle;
 use std::cell::RefCell;
-use std::collections::VecDeque;
+use std::collections::{HashSet, VecDeque};
 use tokio::sync::mpsc;
 use tokio_tungstenite::{
     connect_async,
@@ -261,6 +261,7 @@ async fn run_connection(
     let mut next_id: u64 = 1;
     let mut pending_send: VecDeque<String> = VecDeque::new();
     let mut attach_id: Option<String> = None;
+    let mut pending_prompts: HashSet<String> = HashSet::new();
     let mut human_inputs: VecDeque<PendingInput> = VecDeque::new();
     let mut capabilities_id: Option<String> = None;
     let mut declines_not_shown = false;
@@ -350,7 +351,8 @@ async fn run_connection(
                     transcript(conversation.clone());
                     draft.clear();
                     if let Some(id) = &session_id {
-                        send_rpc(&mut sink, &mut next_id, "prompt.submit", json!({"session_id": id, "profile": client_state.session_profile, "text": text})).await?;
+                        let request_id = send_rpc(&mut sink, &mut next_id, "prompt.submit", json!({"session_id": id, "profile": client_state.session_profile, "text": text})).await?;
+                        pending_prompts.insert(request_id);
                         on_ui(|ui| ui.set_busy(true));
                     } else {
                         pending_send.push_back(text);
@@ -534,6 +536,7 @@ async fn run_connection(
                             }
                             Ok(RpcFrame::Response { id: response_id, result }) => match result {
                                 Ok(value) => {
+                                    pending_prompts.remove(&response_id);
                                     if profiles_id.as_deref() == Some(&response_id) {
                                         let rows: Vec<(String, String)> = value.get("profiles").and_then(Value::as_array)
                                             .into_iter().flatten().filter_map(|item| {
@@ -597,13 +600,29 @@ async fn run_connection(
                                             on_ui(|ui| ui.set_session_id("active".into()));
                                             let mut queued = false;
                                             while let Some(text) = pending_send.pop_front() {
-                                                send_rpc(&mut sink, &mut next_id, "prompt.submit", json!({"session_id": id, "profile": client_state.session_profile, "text": text, "queued": queued})).await?;
+                                                let request_id = send_rpc(&mut sink, &mut next_id, "prompt.submit", json!({"session_id": id, "profile": client_state.session_profile, "text": text, "queued": queued})).await?;
+                                                pending_prompts.insert(request_id);
+                                                on_ui(|ui| ui.set_busy(true));
                                                 queued = true;
                                             }
                                         }
                                     }
                                 }
-                                Err(fault) => status(format!("Hermes: {}", fault.message)),
+                                Err(fault) => {
+                                    if attach_id.as_deref() == Some(&response_id) {
+                                        attach_id = None;
+                                        pending_send.clear();
+                                        conversation.push_str("Chat could not be opened. Message was not sent.\n\n");
+                                        transcript(conversation.clone());
+                                    }
+                                    if pending_prompts.remove(&response_id) {
+                                        on_ui(|ui| ui.set_busy(false));
+                                        conversation.push_str("Message was not accepted by Hermes.\n\n");
+                                        transcript(conversation.clone());
+                                    }
+                                    if model_set_id.as_deref() == Some(&response_id) { model_candidate = None; }
+                                    status(format!("Hermes: {}", fault.message));
+                                },
                             },
                             Ok(RpcFrame::ServerRequest { id, method, params }) => {
                                 if let Some(request) = HumanRequest::parse(id.clone(), &method, &params) {
@@ -619,6 +638,7 @@ async fn run_connection(
                     }
                 }
                 Some(Ok(Message::Ping(bytes))) => { last_inbound = std::time::Instant::now(); sink.send(Message::Pong(bytes)).await?; },
+                Some(Ok(Message::Pong(_))) => { last_inbound = std::time::Instant::now(); },
                 Some(Ok(Message::Close(_))) | None => return Ok(()),
                 Some(Ok(_)) => {},
                 Some(Err(error)) => return Err(error.into()),
