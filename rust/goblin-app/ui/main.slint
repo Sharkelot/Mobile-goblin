@@ -25,6 +25,9 @@ export component MainWindow inherits Window {
     in-out property <[BotRow]> bots: [];
     in-out property <[RoomRow]> rooms: [];
     in-out property <[ChatRow]> room-lines: [];
+    in-out property <string> room-draft: "";
+    in-out property <bool> room-sending: false;
+    in-out property <bool> room-send-supported: false;
     in-out property <string> open-room-name: "";
     in-out property <string> open-room-id: "";
     in-out property <string> open-room-kind: "";
@@ -67,6 +70,8 @@ export component MainWindow inherits Window {
     callback refresh-rooms();
     callback open-room(string, string);
     callback refresh-room();
+    callback send-room(string);
+    callback close-room();
     callback select-profile(string);
     callback set-effort(string);
     callback set-fast(bool);
@@ -183,7 +188,7 @@ export component MainWindow inherits Window {
             HorizontalBox {
                 Text { text: root.session-id == "" ? "New chat" : "Chat ready"; color: #d6e9df; font-size: 17px; }
                 Button { text: "Menu"; clicked => { root.show-menu = !root.show-menu; } }
-                Button { text: "New"; clicked => { root.new-chat(); root.show-sessions = false; root.resource-view = ""; root.show-menu = false; } }
+                Button { text: "New"; clicked => { root.close-room(); root.new-chat(); root.show-sessions = false; root.resource-view = ""; root.show-menu = false; } }
                 Button { text: "Stop"; enabled: root.busy; clicked => { root.interrupt(); } }
             }
             if root.show-menu : ScrollView {
@@ -191,14 +196,14 @@ export component MainWindow inherits Window {
                 menu-items := VerticalBox {
                     width: parent.width - 8px;
                     spacing: 5px;
-                    Button { text: "Chats"; clicked => { root.resource-view = "chats"; root.refresh-sessions(); root.show-menu = false; } }
-                    Button { text: "Bots"; clicked => { root.resource-view = "bots"; root.refresh-bots(); root.show-menu = false; } }
+                    Button { text: "Chats"; clicked => { root.close-room(); root.resource-view = "chats"; root.refresh-sessions(); root.show-menu = false; } }
+                    Button { text: "Bots"; clicked => { root.close-room(); root.resource-view = "bots"; root.refresh-bots(); root.show-menu = false; } }
                     Button { text: "Rooms"; clicked => { root.resource-view = "rooms"; root.open-room-id = ""; root.refresh-rooms(); root.show-menu = false; } }
-                    Button { text: "Scheduled jobs"; clicked => { root.resource-view = "jobs"; root.load-resource("jobs"); root.show-menu = false; } }
-                    Button { text: "Skills"; clicked => { root.resource-view = "skills"; root.load-resource("skills"); root.show-menu = false; } }
-                    Button { text: "Toolsets"; clicked => { root.resource-view = "tools"; root.load-resource("tools"); root.show-menu = false; } }
-                    Button { text: "MCP servers"; clicked => { root.resource-view = "mcp"; root.load-resource("mcp"); root.show-menu = false; } }
-                    Button { text: "Chat settings"; clicked => { root.resource-view = ""; root.show-settings = true; root.show-menu = false; } }
+                    Button { text: "Scheduled jobs"; clicked => { root.close-room(); root.resource-view = "jobs"; root.load-resource("jobs"); root.show-menu = false; } }
+                    Button { text: "Skills"; clicked => { root.close-room(); root.resource-view = "skills"; root.load-resource("skills"); root.show-menu = false; } }
+                    Button { text: "Toolsets"; clicked => { root.close-room(); root.resource-view = "tools"; root.load-resource("tools"); root.show-menu = false; } }
+                    Button { text: "MCP servers"; clicked => { root.close-room(); root.resource-view = "mcp"; root.load-resource("mcp"); root.show-menu = false; } }
+                    Button { text: "Chat settings"; clicked => { root.close-room(); root.resource-view = ""; root.show-settings = true; root.show-menu = false; } }
                 }
             }
             if root.resource-view == "" : HorizontalBox {
@@ -215,7 +220,7 @@ export component MainWindow inherits Window {
                     if root.resource-view == "bots" : Button { text: "Refresh"; clicked => { root.refresh-bots(); } }
                     if root.resource-view == "rooms" : Button { text: "Refresh"; clicked => { if (root.open-room-id == "") { root.refresh-rooms(); } else { root.refresh-room(); } } }
                     if root.resource-view != "chats" && root.resource-view != "bots" && root.resource-view != "rooms" : Button { text: "Refresh"; clicked => { root.load-resource(root.resource-view); } }
-                    Button { text: "Close"; clicked => { root.resource-view = ""; } }
+                    Button { text: "Close"; clicked => { root.close-room(); root.open-room-id = ""; root.resource-view = ""; } }
                 }
                 if root.resource-view == "chats" : VerticalBox {
                     spacing: 6px;
@@ -264,7 +269,7 @@ export component MainWindow inherits Window {
                         vertical-stretch: 1;
                         HorizontalBox {
                             Text { text: root.open-room-name; color: #c6ff6c; font-size: 16px; }
-                            Button { text: "Back"; clicked => { root.open-room-id = ""; root.open-room-name = ""; } }
+                            Button { text: "Back"; clicked => { root.close-room(); root.open-room-id = ""; root.open-room-name = ""; } }
                         }
                         Text { text: root.open-room-kind == "desktop" ? "Desktop room · read only here" : "Hosted room · recent events"; color: #a5bbb0; font-size: 12px; }
                         ListView {
@@ -274,6 +279,14 @@ export component MainWindow inherits Window {
                                 color: line.kind == "user" ? #c6ff6c : #ebf9f0;
                                 wrap: word-wrap;
                                 width: parent.width - 16px;
+                            }
+                        }
+                        if root.open-room-kind == "hosted" && root.room-send-supported : HorizontalBox {
+                            LineEdit { text <=> root.room-draft; placeholder-text: "Message this room"; }
+                            Button {
+                                text: root.room-sending ? "Sending…" : "Send";
+                                enabled: !root.room-sending && root.room-draft != "";
+                                clicked => { root.send-room(root.room-draft); }
                             }
                         }
                     }

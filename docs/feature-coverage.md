@@ -7,7 +7,7 @@ Target: the running Hermes dashboard reports version 0.22.5. Its generated OpenR
 | Connection | Status check, basic password login, WS tickets, heartbeat, reconnect | Native OAuth and persistent signed-in state |
 | Sessions | Create, browse recent and archived, search stored chats, resume, load recent text, new chat, stop, steer, rename, archive and branch | Full paging and event replay |
 | Bots | Browse the gateway's profile roster, including pinned/hidden order and chat previews; open existing canonical Bot Chats | Create/edit bots, start missing canonical chats safely, pin/hide, avatars, health and routine status |
-| Rooms | Browse hosted rooms and recent gateway logs; read Desktop room mirrors from the default profile metadata with tombstone handling | Hosted room send, create, stop, approvals, attachments, polling and deep log paging |
+| Rooms | Browse hosted rooms and recent gateway logs, send text with a durable in-process event ID and log confirmation, poll active rooms, and read Desktop room mirrors with tombstone handling | Hosted room create, stop, approvals, attachments and deep log paging |
 | Chat | Send, streaming text and reasoning, separate user/assistant/tool/notice rows, tool summaries matched by gateway ID, stored text and image placeholders | Attachment viewing, expandable tool details, markdown, images, and full event replay |
 | Human input | Approvals, clarification batches, sudo and secret values, vault unlock/code | Rich multi-select UI and vault save-login |
 | Agents and models | Select profile, model, reasoning effort and fast tier | Full profile management, prices, per-model capability controls |

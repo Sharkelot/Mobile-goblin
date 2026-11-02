@@ -44,6 +44,8 @@ enum Command {
         kind: String,
     },
     RefreshRoom,
+    SendRoom(String),
+    CloseRoom,
     SelectProfile(String),
     RefreshModels,
     SelectModel {
@@ -72,6 +74,12 @@ enum Command {
         name: String,
     },
     McpTest(String),
+}
+
+struct PendingRoomSend {
+    text: String,
+    event_id: String,
+    in_flight: bool,
 }
 
 thread_local! {
@@ -199,6 +207,14 @@ fn start() -> Result<(), slint::PlatformError> {
         let _ = sender.send(Command::RefreshRoom);
     });
     let sender = commands.clone();
+    ui.on_send_room(move |text| {
+        let _ = sender.send(Command::SendRoom(text.to_string()));
+    });
+    let sender = commands.clone();
+    ui.on_close_room(move || {
+        let _ = sender.send(Command::CloseRoom);
+    });
+    let sender = commands.clone();
     ui.on_select_profile(move |profile| {
         let _ = sender.send(Command::SelectProfile(profile.to_string()));
     });
@@ -294,10 +310,14 @@ async fn worker(mut rx: mpsc::UnboundedReceiver<Command>) {
         };
         let mut restore_id: Option<String> = None;
         let mut chat_rows = Vec::new();
+        let mut pending_room_sends: HashMap<String, PendingRoomSend> = HashMap::new();
         let mut client_state = ClientState::default();
         let mut attempt = 0_u32;
         loop {
             let mut ready = false;
+            for pending in pending_room_sends.values_mut() {
+                pending.in_flight = false;
+            }
             status(if attempt == 0 {
                 "Checking Hermes dashboard…".to_owned()
             } else {
@@ -310,6 +330,7 @@ async fn worker(mut rx: mpsc::UnboundedReceiver<Command>) {
                 &password,
                 &mut restore_id,
                 &mut chat_rows,
+                &mut pending_room_sends,
                 &mut client_state,
                 &mut ready,
             )
@@ -317,6 +338,10 @@ async fn worker(mut rx: mpsc::UnboundedReceiver<Command>) {
             on_ui(|ui| {
                 ui.set_connected(false);
                 ui.set_busy(false);
+                ui.set_room_sending(false);
+                ui.set_open_room_id("".into());
+                ui.set_open_room_name("".into());
+                ui.set_resource_view("".into());
                 ui.set_input_pending(false);
             });
             match result {
@@ -349,6 +374,7 @@ async fn run_connection(
     password: &str,
     restore_id: &mut Option<String>,
     chat_rows: &mut Vec<ChatRow>,
+    pending_room_sends: &mut HashMap<String, PendingRoomSend>,
     client_state: &mut ClientState,
     ready: &mut bool,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -398,6 +424,11 @@ async fn run_connection(
     let mut room_list_id: Option<String> = None;
     let mut room_mirror_id: Option<String> = None;
     let mut room_log_id: Option<String> = None;
+    let mut room_state_id: Option<String> = None;
+    let mut room_send_ids: HashMap<String, String> = HashMap::new();
+    let mut room_working = false;
+    let mut room_send_supported = false;
+    let mut last_room_poll = std::time::Instant::now();
     let mut hosted_rooms: Vec<RoomRow> = Vec::new();
     let mut desktop_rooms: Vec<RoomRow> = Vec::new();
     let mut desktop_lines: HashMap<String, Vec<ChatRow>> = HashMap::new();
@@ -417,8 +448,19 @@ async fn run_connection(
     let mut confirm_candidate: Option<(String, String)> = None;
     let mut heartbeat = tokio::time::interval(std::time::Duration::from_secs(15));
     heartbeat.tick().await;
+    let mut room_poll = tokio::time::interval(std::time::Duration::from_secs(2));
+    room_poll.tick().await;
     loop {
         tokio::select! {
+            _ = room_poll.tick() => {
+                if let Some((id, kind)) = &open_room {
+                    let delay = if room_working { 2 } else { 10 };
+                    if kind == "hosted" && room_state_id.is_none() && last_room_poll.elapsed() >= std::time::Duration::from_secs(delay) {
+                        room_state_id = Some(send_rpc(&mut sink, &mut next_id, "groups.state", json!({"room_id":id})).await?);
+                        last_room_poll = std::time::Instant::now();
+                    }
+                }
+            },
             _ = heartbeat.tick() => {
                 if heartbeat_required {
                     if last_inbound.elapsed() > std::time::Duration::from_secs(45) {
@@ -626,6 +668,8 @@ async fn run_connection(
                     status("Loading bots…");
                 }
                 Some(Command::RefreshRooms) => {
+                    room_send_supported = false;
+                    on_ui(|ui| ui.set_room_send_supported(false));
                     room_capabilities_id = Some(send_rpc(&mut sink, &mut next_id, "groups.capabilities", json!({})).await?);
                     room_mirror_id = Some(send_rpc(&mut sink, &mut next_id, "profiles.list", json!({})).await?);
                     status("Loading rooms…");
@@ -635,10 +679,16 @@ async fn run_connection(
                         .iter().find(|room| room.id.as_str() == id).cloned();
                     let Some(room) = room else { status("Room is no longer available. Refresh rooms."); continue; };
                     open_room = Some((id.clone(), kind.clone()));
+                    room_working = false;
+                    room_state_id = None;
+                    let retry_text = pending_room_sends.get(&id).map(|pending| pending.text.clone()).unwrap_or_default();
+                    let sending = pending_room_sends.get(&id).is_some_and(|pending| pending.in_flight);
                     on_ui(move |ui| {
                         ui.set_open_room_id(id.into());
                         ui.set_open_room_kind(kind.into());
                         ui.set_open_room_name(room.name);
+                        ui.set_room_draft(retry_text.into());
+                        ui.set_room_sending(sending);
                     });
                     if let Some((room_id, kind)) = &open_room {
                         if kind == "desktop" {
@@ -657,11 +707,37 @@ async fn run_connection(
                 Some(Command::RefreshRoom) => {
                     if let Some((room_id, kind)) = &open_room {
                         if kind == "hosted" {
-                            room_log_id = Some(send_rpc(&mut sink, &mut next_id, "groups.log", json!({"room_id":room_id,"since_seq":room_cursor,"limit":100})).await?);
+                            if room_log_id.is_none() {
+                                room_log_id = Some(send_rpc(&mut sink, &mut next_id, "groups.log", json!({"room_id":room_id,"since_seq":room_cursor,"limit":100})).await?);
+                            }
                         } else {
                             room_mirror_id = Some(send_rpc(&mut sink, &mut next_id, "profiles.list", json!({})).await?);
                         }
                     }
+                }
+                Some(Command::CloseRoom) => {
+                    open_room = None;
+                    room_state_id = None;
+                    room_log_id = None;
+                    room_working = false;
+                }
+                Some(Command::SendRoom(text)) => {
+                    let Some((room_id, kind)) = &open_room else { continue; };
+                    if kind != "hosted" || !room_send_supported || text.trim().is_empty() { continue; }
+                    let room_id = room_id.clone();
+                    let text = text.trim().to_owned();
+                    let pending = match prepare_room_send(pending_room_sends, &room_id, &text) {
+                        Ok(pending) => pending,
+                        Err(message) => { status(message); continue; }
+                    };
+                    pending.in_flight = true;
+                    let request_id = send_rpc(&mut sink, &mut next_id, "groups.send", json!({
+                        "room_id": room_id, "event_id": pending.event_id,
+                        "payload": {"text": pending.text, "thread_id": "main"}
+                    })).await?;
+                    room_send_ids.insert(request_id, room_id);
+                    on_ui(|ui| ui.set_room_sending(true));
+                    status("Sending room message…");
                 }
                 Some(Command::SelectProfile(profile)) => {
                     client_state.selected_profile = if profile == "default" { None } else { Some(profile.clone()) };
@@ -928,6 +1004,49 @@ async fn run_connection(
                             Ok(RpcFrame::Response { id: response_id, result }) => match result {
                                 Ok(value) => {
                                     pending_prompts.remove(&response_id);
+                                    if let Some(room_id) = room_send_ids.remove(&response_id) {
+                                        let confirmed = value.get("event").and_then(|event| event.get("event_id")).and_then(Value::as_str)
+                                            .zip(pending_room_sends.get(&room_id).map(|pending| pending.event_id.as_str()))
+                                            .is_some_and(|(returned, expected)| returned == expected);
+                                        if confirmed {
+                                            let sent = pending_room_sends.remove(&room_id).unwrap();
+                                            if let Some((id, kind)) = &open_room {
+                                                if id == &room_id && kind == "hosted" {
+                                                    let lines = parse_room_events(&json!({"events":[value.get("event")]}), room_members.get(id));
+                                                    for (seq, line) in lines {
+                                                        if !room_events.iter().any(|(existing, _)| *existing == seq) { room_events.push((seq, line)); }
+                                                    }
+                                                    room_events.sort_by_key(|(seq, _)| *seq);
+                                                    present_room_lines(room_events.iter().map(|(_, line)| line.clone()).collect());
+                                                    let text = sent.text;
+                                                    on_ui(move |ui| {
+                                                        ui.set_room_sending(false);
+                                                        if ui.get_room_draft().as_str().trim() == text { ui.set_room_draft("".into()); }
+                                                    });
+                                                    if room_log_id.is_none() {
+                                                        room_log_id = Some(send_rpc(&mut sink, &mut next_id, "groups.log", json!({"room_id":id,"since_seq":room_cursor,"limit":100})).await?);
+                                                    }
+                                                }
+                                            }
+                                            status("Room message posted");
+                                        } else {
+                                            if let Some(pending) = pending_room_sends.get_mut(&room_id) { pending.in_flight = false; }
+                                            on_ui(|ui| ui.set_room_sending(false));
+                                            status("Room reply was incomplete. Refresh, then retry the same message.");
+                                        }
+                                        continue;
+                                    }
+                                    if room_state_id.as_deref() == Some(&response_id) {
+                                        room_state_id = None;
+                                        room_working = value.pointer("/driver_status/working").and_then(Value::as_bool) == Some(true);
+                                        if let Some((id, kind)) = &open_room {
+                                            let latest = value.pointer("/room/latest_seq").and_then(Value::as_i64).unwrap_or(room_cursor);
+                                            if kind == "hosted" && latest > room_cursor && room_log_id.is_none() {
+                                                room_log_id = Some(send_rpc(&mut sink, &mut next_id, "groups.log", json!({"room_id":id,"since_seq":room_cursor,"limit":100})).await?);
+                                            }
+                                        }
+                                        continue;
+                                    }
                                     if let Some(resource) = resource_requests.remove(&response_id) {
                                         let content = format_resource(&resource, &value);
                                         on_ui(move |ui| ui.set_resource_content(content.into()));
@@ -1006,6 +1125,8 @@ async fn run_connection(
                                     if room_capabilities_id.as_deref() == Some(&response_id) {
                                         room_capabilities_id = None;
                                         if value.get("driver").and_then(Value::as_bool) == Some(true) {
+                                            room_send_supported = value.get("methods").and_then(Value::as_array).is_some_and(|methods| methods.iter().any(|method| method.as_str() == Some("groups.send")));
+                                            on_ui(move |ui| ui.set_room_send_supported(room_send_supported));
                                             room_list_id = Some(send_rpc(&mut sink, &mut next_id, "groups.list", json!({})).await?);
                                         } else {
                                             hosted_rooms.clear();
@@ -1039,6 +1160,17 @@ async fn run_connection(
                                         room_log_id = None;
                                         if let Some((id, kind)) = &open_room {
                                             if kind == "hosted" {
+                                                if pending_room_sends.get(id).is_some_and(|pending| log_confirms_room_send(&value, &pending.event_id)) {
+                                                    room_send_ids.retain(|_, pending_room| pending_room != id);
+                                                    if let Some(sent) = pending_room_sends.remove(id) {
+                                                        let text = sent.text;
+                                                        on_ui(move |ui| {
+                                                            ui.set_room_sending(false);
+                                                            if ui.get_room_draft().as_str().trim() == text { ui.set_room_draft("".into()); }
+                                                        });
+                                                        status("Room message confirmed in log");
+                                                    }
+                                                }
                                                 let members = room_members.get(id);
                                                 let incoming = parse_room_events(&value, members);
                                                 for (seq, line) in incoming {
@@ -1119,6 +1251,22 @@ async fn run_connection(
                                     }
                                 }
                                 Err(fault) => {
+                                    if let Some(room_id) = room_send_ids.remove(&response_id) {
+                                        if fault.code == 0 {
+                                            if let Some(pending) = pending_room_sends.get_mut(&room_id) { pending.in_flight = false; }
+                                            status(format!("Room send outcome unknown: {}. Refresh or retry the same text.", fault.message));
+                                        } else {
+                                            pending_room_sends.remove(&room_id);
+                                            status(format!("Room message was refused: {}", fault.message));
+                                        }
+                                        on_ui(|ui| ui.set_room_sending(false));
+                                        continue;
+                                    }
+                                    if room_state_id.as_deref() == Some(&response_id) { room_state_id = None; }
+                                    if room_log_id.as_deref() == Some(&response_id) { room_log_id = None; }
+                                    if room_capabilities_id.as_deref() == Some(&response_id) { room_capabilities_id = None; }
+                                    if room_list_id.as_deref() == Some(&response_id) { room_list_id = None; }
+                                    if room_mirror_id.as_deref() == Some(&response_id) { room_mirror_id = None; }
                                     resource_requests.remove(&response_id);
                                     job_mutation_ids.remove(&response_id);
                                     skill_install_ids.remove(&response_id);
@@ -1561,6 +1709,37 @@ fn parse_room_events(
     lines
 }
 
+fn log_confirms_room_send(log: &Value, event_id: &str) -> bool {
+    log.get("events")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .any(|event| event.get("event_id").and_then(Value::as_str) == Some(event_id))
+}
+
+fn prepare_room_send<'a>(
+    pending: &'a mut HashMap<String, PendingRoomSend>,
+    room_id: &str,
+    text: &str,
+) -> Result<&'a mut PendingRoomSend, &'static str> {
+    let attempt = pending
+        .entry(room_id.to_owned())
+        .or_insert_with(|| PendingRoomSend {
+            text: text.to_owned(),
+            event_id: format!("message-{}", uuid::Uuid::new_v4()),
+            in_flight: false,
+        });
+    if attempt.text != text {
+        return Err(
+            "A previous room message has an unknown outcome. Retry its original text first.",
+        );
+    }
+    if attempt.in_flight {
+        return Err("Room message is still sending…");
+    }
+    Ok(attempt)
+}
+
 fn present_sessions(page: &Value, field: &str) -> usize {
     let mut seen = HashSet::new();
     let rows: Vec<SessionRow> = page
@@ -1859,8 +2038,9 @@ pub fn main() {
 #[cfg(test)]
 mod tests {
     use super::{
-        history_reasoning, history_text, parse_bot_rows, parse_desktop_rooms, parse_hosted_rooms,
-        parse_room_events, short_text, tool_summary,
+        history_reasoning, history_text, log_confirms_room_send, parse_bot_rows,
+        parse_desktop_rooms, parse_hosted_rooms, parse_room_events, prepare_room_send, short_text,
+        tool_summary,
     };
     use serde_json::json;
 
@@ -1952,5 +2132,30 @@ mod tests {
         assert_eq!(rooms[0].name.as_str(), "Reused");
         assert_eq!(lines["name:reused"].len(), 2);
         assert_eq!(lines["name:reused"][1].body.as_str(), "Hi");
+    }
+
+    #[test]
+    fn room_retry_reuses_event_id_and_waits_for_log_confirmation() {
+        let mut pending = std::collections::HashMap::new();
+        let first = prepare_room_send(&mut pending, "room-1", "hello").unwrap();
+        let event_id = first.event_id.clone();
+        first.in_flight = true;
+        assert!(prepare_room_send(&mut pending, "room-1", "hello").is_err());
+        pending.get_mut("room-1").unwrap().in_flight = false;
+        assert_eq!(
+            prepare_room_send(&mut pending, "room-1", "hello")
+                .unwrap()
+                .event_id,
+            event_id
+        );
+        assert!(prepare_room_send(&mut pending, "room-1", "changed").is_err());
+        assert!(!log_confirms_room_send(
+            &json!({"events":[{"event_id":"other"}]}),
+            &event_id
+        ));
+        assert!(log_confirms_room_send(
+            &json!({"events":[{"event_id":event_id}]}),
+            &event_id
+        ));
     }
 }
