@@ -19,6 +19,10 @@ test -n "$screen_width"
 # Password directly is unreliable while Android is resizing for the keyboard.
 adb shell input tap "$((screen_width / 2))" "$((screen_height * 37 / 100))"
 adb shell input keyevent 66
+sleep 1
+# Enter currently dismisses the IME. With the keyboard closed, Password is
+# centered near 70% of the screen; select it before taking the focus capture.
+adb shell input tap "$((screen_width / 2))" "$((screen_height * 70 / 100))"
 sleep 2
 adb exec-out screencap -p > "$RUNNER_TEMP/mobile-goblin-password-focus.png"
 test -s "$RUNNER_TEMP/mobile-goblin-password-focus.png"
