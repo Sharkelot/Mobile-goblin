@@ -6,7 +6,7 @@ Status: **D** = verified slice, **P** = some behavior exists, **M** = missing. S
 
 | ID | Area and completion target | Status |
 |---|---|:---:|
-| G01 | Add and switch among saved gateways, with gateway names, reachability, and removal | M |
+| G01 | Add and switch among saved gateways, with gateway names, reachability, and removal | P |
 | G02 | Password sign-in, errors, session expiry and reauthentication | P |
 | G03 | Browser/OAuth sign-in return and provider selection | M |
 | G04 | Persist credentials/session securely with Android Keystore and restore on launch | M |
@@ -83,8 +83,8 @@ Status: **D** = verified slice, **P** = some behavior exists, **M** = missing. S
 
 ## Current order of work
 
-1. Finish the read-only Plugins catalogue (`F02`), then authenticated plugin pages (`F03`).
-2. Build secure persisted login and a local data layer (`G04`, `L04`), which unlock reliable background behavior.
+1. Finish the read-only Plugins catalogue (`F02`), then build secure persisted login (`G04`); an active reconnect now reuses its cookie and the app remembers the last gateway address, but an app restart still requires sign-in.
+2. Add authenticated in-app plugin pages (`F03`) and a local data layer (`L04`), which unlock reliable background behavior.
 3. Complete core chat/media and session flows (`C02`–`C09`, `S01`–`S02`).
 4. Complete management screens and Inbox (`B02`–`B03`, `R03`–`R04`, `I01`–`I04`, `J02`–`J03`, `K02`–`K04`, `F01`, `F04`).
 5. Add Android services, notifications, phone, voice and Wear integrations (`L01`–`L06`, `P01`–`P05`, `V01`–`V03`, `W01`–`W02`).

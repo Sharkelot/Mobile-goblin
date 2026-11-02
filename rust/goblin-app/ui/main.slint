@@ -17,6 +17,7 @@ export component MainWindow inherits Window {
     preferred-height: 820px;
 
     in-out property <string> status: "Enter your Hermes dashboard address";
+    in-out property <string> gateway-address: "";
     in-out property <[ChatRow]> chat-rows: [];
     in-out property <int> chat-revision: 0;
     in-out property <string> composer-text: "";
@@ -167,6 +168,7 @@ export component MainWindow inherits Window {
                 spacing: 8px;
                 Text { text: "Dashboard address"; color: #d6e9df; }
                 gateway := LineEdit {
+                    text <=> root.gateway-address;
                     placeholder-text: "http://your-tailnet-host:9119";
                     accepted => { username.focus(); }
                     changed has-focus => { if (self.has-focus) { login-scroll.content-y = 0px; } }

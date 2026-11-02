@@ -8,6 +8,7 @@ use serde_json::{Value, json};
 use slint::ComponentHandle;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::path::{Path, PathBuf};
 use tokio::sync::mpsc;
 use tokio_tungstenite::{
     connect_async,
@@ -125,8 +126,14 @@ fn chat_row(kind: &str, label: &str, body: impl Into<String>) -> ChatRow {
     }
 }
 
-fn start() -> Result<(), slint::PlatformError> {
+fn start(saved_gateway_path: Option<PathBuf>) -> Result<(), slint::PlatformError> {
     let ui = MainWindow::new()?;
+    if let Some(path) = saved_gateway_path.as_deref()
+        && let Ok(address) = std::fs::read_to_string(path)
+        && let Ok(url) = GatewayUrl::parse(&address)
+    {
+        ui.set_gateway_address(url.as_str().into());
+    }
     UI.with(|cell| *cell.borrow_mut() = Some(ui.as_weak()));
     let (commands, rx) = mpsc::unbounded_channel();
     std::thread::spawn(move || {
@@ -134,7 +141,7 @@ fn start() -> Result<(), slint::PlatformError> {
             .enable_all()
             .build()
         {
-            runtime.block_on(worker(rx));
+            runtime.block_on(worker(rx, saved_gateway_path));
         } else {
             status("Could not start network runtime");
         }
@@ -318,7 +325,7 @@ fn start() -> Result<(), slint::PlatformError> {
     ui.run()
 }
 
-async fn worker(mut rx: mpsc::UnboundedReceiver<Command>) {
+async fn worker(mut rx: mpsc::UnboundedReceiver<Command>, saved_gateway_path: Option<PathBuf>) {
     let mut pending_connect: Option<Command> = None;
     loop {
         let command = match pending_connect.take() {
@@ -335,6 +342,13 @@ async fn worker(mut rx: mpsc::UnboundedReceiver<Command>) {
         } = command
         else {
             continue;
+        };
+        let gateway = match GatewayUrl::parse(&url).and_then(GatewayClient::new) {
+            Ok(gateway) => gateway,
+            Err(error) => {
+                status(format!("Cannot connect: {error}"));
+                continue;
+            }
         };
         let mut restore_id: Option<String> = None;
         let mut chat_rows = Vec::new();
@@ -353,9 +367,11 @@ async fn worker(mut rx: mpsc::UnboundedReceiver<Command>) {
             });
             let result = run_connection(
                 &mut rx,
-                &url,
+                &gateway,
                 &username,
                 &password,
+                attempt > 0,
+                saved_gateway_path.as_deref(),
                 &mut restore_id,
                 &mut chat_rows,
                 &mut pending_room_sends,
@@ -397,27 +413,37 @@ async fn worker(mut rx: mpsc::UnboundedReceiver<Command>) {
 
 async fn run_connection(
     rx: &mut mpsc::UnboundedReceiver<Command>,
-    url: &str,
+    gateway: &GatewayClient,
     username: &str,
     password: &str,
+    prefer_existing_session: bool,
+    saved_gateway_path: Option<&Path>,
     restore_id: &mut Option<String>,
     chat_rows: &mut Vec<ChatRow>,
     pending_room_sends: &mut HashMap<String, PendingRoomSend>,
     client_state: &mut ClientState,
     ready: &mut bool,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let gateway = GatewayClient::new(GatewayUrl::parse(url)?)?;
     let info = gateway.status().await?;
     if info.auth_required {
         if username.trim().is_empty() || password.is_empty() {
             return Err("Username and password are required by this gateway".into());
         }
-        status("Signing in…");
-        gateway
-            .password_login("basic", &username, &password)
-            .await?;
+        if !prefer_existing_session {
+            status("Signing in…");
+        }
     }
-    let ticket = gateway.ws_ticket().await?;
+    let ticket = gateway
+        .ws_ticket_with_password(
+            info.auth_required,
+            username,
+            password,
+            prefer_existing_session,
+        )
+        .await?;
+    if let Some(path) = saved_gateway_path {
+        let _ = std::fs::write(path, gateway.url.as_str());
+    }
     let mut request = gateway
         .url
         .websocket_url()?
@@ -2371,13 +2397,16 @@ where
 #[cfg(target_os = "android")]
 #[unsafe(no_mangle)]
 fn android_main(app: slint::android::AndroidApp) {
+    let saved_gateway_path = app
+        .internal_data_path()
+        .map(|path| path.join("last-gateway.txt"));
     slint::android::init(app).expect("initialize Android UI");
-    start().expect("run Mobile Goblin");
+    start(saved_gateway_path).expect("run Mobile Goblin");
 }
 
 #[cfg(not(target_os = "android"))]
 pub fn main() {
-    start().expect("run Mobile Goblin");
+    start(None).expect("run Mobile Goblin");
 }
 
 #[cfg(test)]

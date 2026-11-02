@@ -4,7 +4,7 @@ Target: the running Hermes dashboard reports version 0.22.5. Its generated OpenR
 
 | Area | Rust app today | Next work |
 |---|---|---|
-| Connection | Status check, basic password login, WS tickets, heartbeat, reconnect | Native OAuth and persistent signed-in state |
+| Connection | Status check, basic password login, WS tickets, heartbeat and reconnect; a live reconnect reuses its cookie and signs in again only after a 401 ticket response; Android remembers the last validated gateway address | Multiple saved gateways, native OAuth and Keystore-backed signed-in state across app restarts |
 | Sessions | Create, browse recent and archived, search stored chats, resume, load recent text, new chat, stop, steer, rename, archive and branch | Full paging and event replay |
 | Bots | Browse the gateway's profile roster, including pinned/hidden order and chat previews; open existing canonical Bot Chats | Create/edit bots, start missing canonical chats safely, pin/hide, avatars, health and routine status |
 | Rooms | Browse hosted rooms and recent gateway logs, send text with a durable in-process event ID and log confirmation, poll active rooms, and read Desktop room mirrors with tombstone handling | Hosted room create, stop, approvals, attachments and deep log paging |

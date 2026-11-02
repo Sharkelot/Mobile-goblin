@@ -207,6 +207,31 @@ impl GatewayClient {
         Ok(checked(response).await?.json().await?)
     }
 
+    /// Reuse the current cookie when a live socket reconnects. If the gateway
+    /// rejects an expired cookie, sign in once and retry the ticket request.
+    pub async fn ws_ticket_with_password(
+        &self,
+        auth_required: bool,
+        username: &str,
+        password: &str,
+        prefer_existing_session: bool,
+    ) -> Result<WsTicket, GoblinError> {
+        if auth_required && !prefer_existing_session {
+            self.password_login("basic", username, password).await?;
+        }
+        match self.ws_ticket().await {
+            Err(GoblinError::HttpStatus(status, _))
+                if auth_required
+                    && prefer_existing_session
+                    && status == reqwest::StatusCode::UNAUTHORIZED =>
+            {
+                self.password_login("basic", username, password).await?;
+                self.ws_ticket().await
+            }
+            result => result,
+        }
+    }
+
     pub async fn sessions(
         &self,
         limit: u32,
