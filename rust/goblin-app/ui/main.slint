@@ -44,6 +44,7 @@ export component MainWindow inherits Window {
     in-out property <bool> fast: false;
     in-out property <string> resource-view: "";
     in-out property <string> resource-content: "";
+    in-out property <int> insights-days: 30;
     in-out property <bool> input-pending: false;
     in-out property <bool> input-approval: false;
     in-out property <bool> input-masked: false;
@@ -73,6 +74,7 @@ export component MainWindow inherits Window {
     callback send-room(string);
     callback close-room();
     callback select-profile(string);
+    callback load-insights(int);
     callback set-effort(string);
     callback set-fast(bool);
     callback steer(string);
@@ -199,6 +201,7 @@ export component MainWindow inherits Window {
                     Button { text: "Chats"; clicked => { root.close-room(); root.resource-view = "chats"; root.refresh-sessions(); root.show-menu = false; } }
                     Button { text: "Bots"; clicked => { root.close-room(); root.resource-view = "bots"; root.refresh-bots(); root.show-menu = false; } }
                     Button { text: "Rooms"; clicked => { root.resource-view = "rooms"; root.open-room-id = ""; root.refresh-rooms(); root.show-menu = false; } }
+                    Button { text: "Insights"; clicked => { root.close-room(); root.resource-view = "insights"; root.load-insights(root.insights-days); root.show-menu = false; } }
                     Button { text: "Scheduled jobs"; clicked => { root.close-room(); root.resource-view = "jobs"; root.load-resource("jobs"); root.show-menu = false; } }
                     Button { text: "Skills"; clicked => { root.close-room(); root.resource-view = "skills"; root.load-resource("skills"); root.show-menu = false; } }
                     Button { text: "Toolsets"; clicked => { root.close-room(); root.resource-view = "tools"; root.load-resource("tools"); root.show-menu = false; } }
@@ -219,7 +222,8 @@ export component MainWindow inherits Window {
                     Text { text: root.resource-view == "chats" ? "Chats" : root.resource-view; color: #c6ff6c; font-size: 17px; }
                     if root.resource-view == "bots" : Button { text: "Refresh"; clicked => { root.refresh-bots(); } }
                     if root.resource-view == "rooms" : Button { text: "Refresh"; clicked => { if (root.open-room-id == "") { root.refresh-rooms(); } else { root.refresh-room(); } } }
-                    if root.resource-view != "chats" && root.resource-view != "bots" && root.resource-view != "rooms" : Button { text: "Refresh"; clicked => { root.load-resource(root.resource-view); } }
+                    if root.resource-view == "insights" : Button { text: "Refresh"; clicked => { root.load-insights(root.insights-days); } }
+                    if root.resource-view != "chats" && root.resource-view != "bots" && root.resource-view != "rooms" && root.resource-view != "insights" : Button { text: "Refresh"; clicked => { root.load-resource(root.resource-view); } }
                     Button { text: "Close"; clicked => { root.close-room(); root.open-room-id = ""; root.resource-view = ""; } }
                 }
                 if root.resource-view == "chats" : VerticalBox {
@@ -301,6 +305,11 @@ export component MainWindow inherits Window {
                         Button { text: "Resume"; clicked => { root.manage-job("resume", job-name.text, "", ""); } }
                         Button { text: "Remove"; clicked => { root.manage-job("remove", job-name.text, "", ""); } }
                     }
+                }
+                if root.resource-view == "insights" : HorizontalBox {
+                    Button { text: root.insights-days == 7 ? "7 days ✓" : "7 days"; clicked => { root.insights-days = 7; root.load-insights(7); } }
+                    Button { text: root.insights-days == 30 ? "30 days ✓" : "30 days"; clicked => { root.insights-days = 30; root.load-insights(30); } }
+                    Button { text: root.insights-days == 90 ? "90 days ✓" : "90 days"; clicked => { root.insights-days = 90; root.load-insights(90); } }
                 }
                 if root.resource-view == "skills" : VerticalBox {
                     skill-query := LineEdit { placeholder-text: "Search or skill identifier"; }

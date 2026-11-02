@@ -56,6 +56,7 @@ enum Command {
     SetFast(bool),
     Steer(String),
     LoadResource(String),
+    LoadInsights(u16),
     ManageJob {
         action: String,
         name: String,
@@ -244,6 +245,10 @@ fn start() -> Result<(), slint::PlatformError> {
     let sender = commands.clone();
     ui.on_load_resource(move |resource| {
         let _ = sender.send(Command::LoadResource(resource.to_string()));
+    });
+    let sender = commands.clone();
+    ui.on_load_insights(move |days| {
+        let _ = sender.send(Command::LoadInsights(days.clamp(1, 365) as u16));
     });
     let sender = commands.clone();
     ui.on_manage_job(move |action, name, schedule, prompt| {
@@ -817,6 +822,19 @@ async fn run_connection(
                     let id = send_rpc(&mut sink, &mut next_id, method, params).await?;
                     resource_requests.insert(id, resource.clone());
                     on_ui(move |ui| ui.set_resource_content("Loading…".into()));
+                }
+                Some(Command::LoadInsights(days)) => {
+                    on_ui(move |ui| ui.set_resource_content("Loading insights…".into()));
+                    match gateway.usage(days, client_state.selected_profile.as_deref()).await {
+                        Ok(report) => {
+                            let content = format_insights(&report);
+                            on_ui(move |ui| ui.set_resource_content(content.into()));
+                        }
+                        Err(error) => {
+                            let content = format!("Cannot load insights: {error}");
+                            on_ui(move |ui| ui.set_resource_content(content.into()));
+                        }
+                    }
                 }
                 Some(Command::ManageJob { action, name, schedule, prompt }) => {
                     if !matches!(action.as_str(), "add"|"pause"|"resume"|"remove") { continue; }
@@ -1791,6 +1809,108 @@ fn present_sessions(page: &Value, field: &str) -> usize {
     count
 }
 
+fn format_insights(report: &Value) -> String {
+    let totals = &report["totals"];
+    let sessions = totals["total_sessions"].as_u64().unwrap_or(0);
+    let calls = totals["total_api_calls"].as_u64().unwrap_or(0);
+    if sessions == 0 && calls == 0 {
+        return "Nothing used yet. Chats from this period and their cost show up here.".into();
+    }
+    let input = totals["total_input"].as_u64().unwrap_or(0);
+    let output = totals["total_output"].as_u64().unwrap_or(0);
+    let cache = totals["total_cache_read"].as_u64().unwrap_or(0);
+    let billed = totals["total_actual_cost"].as_f64().unwrap_or(0.0);
+    let cost = if billed > 0.0 {
+        billed
+    } else {
+        totals["total_estimated_cost"].as_f64().unwrap_or(0.0)
+    };
+    let cost_kind = if billed > 0.0 { "billed" } else { "estimated" };
+    let cache_pct = if input + cache > 0 {
+        cache.saturating_mul(100) / (input + cache)
+    } else {
+        0
+    };
+    let mut sections = vec![format!(
+        "{} days · {} sessions · {} API calls\n${cost:.4} {cost_kind} · {} input + {} output tokens\n{} cache read tokens · {cache_pct}% of prompt",
+        report["period_days"].as_u64().unwrap_or(30),
+        sessions,
+        calls,
+        input,
+        output,
+        cache
+    )];
+
+    let mut daily = report["daily"].as_array().cloned().unwrap_or_default();
+    daily.sort_by(|a, b| a["day"].as_str().cmp(&b["day"].as_str()));
+    let days: Vec<String> = daily
+        .iter()
+        .map(|day| {
+            format!(
+                "{} · {} tokens · ${:.4}",
+                day["day"].as_str().unwrap_or("?"),
+                day["input_tokens"].as_u64().unwrap_or(0)
+                    + day["output_tokens"].as_u64().unwrap_or(0),
+                day["actual_cost"]
+                    .as_f64()
+                    .filter(|v| *v > 0.0)
+                    .unwrap_or_else(|| day["estimated_cost"].as_f64().unwrap_or(0.0))
+            )
+        })
+        .collect();
+    if !days.is_empty() {
+        sections.push(format!("Tokens by day\n{}", days.join("\n")));
+    }
+
+    let mut models = report["by_model"].as_array().cloned().unwrap_or_default();
+    models.sort_by_key(|m| {
+        std::cmp::Reverse(
+            m["input_tokens"].as_u64().unwrap_or(0) + m["output_tokens"].as_u64().unwrap_or(0),
+        )
+    });
+    let model_lines: Vec<String> = models
+        .iter()
+        .map(|m| {
+            format!(
+                "{} · {} tokens · {} calls",
+                m["model"].as_str().unwrap_or("Unknown model"),
+                m["input_tokens"].as_u64().unwrap_or(0) + m["output_tokens"].as_u64().unwrap_or(0),
+                m["api_calls"].as_u64().unwrap_or(0)
+            )
+        })
+        .collect();
+    if !model_lines.is_empty() {
+        sections.push(format!("Models\n{}", model_lines.join("\n")));
+    }
+
+    for (title, items, key, count_key) in [
+        ("Tool calls", &report["tools"], "tool", "count"),
+        (
+            "Skill uses",
+            &report["skills"]["top_skills"],
+            "skill",
+            "total_count",
+        ),
+    ] {
+        let mut rows = items.as_array().cloned().unwrap_or_default();
+        rows.sort_by_key(|item| std::cmp::Reverse(item[count_key].as_u64().unwrap_or(0)));
+        let lines: Vec<String> = rows
+            .iter()
+            .map(|item| {
+                format!(
+                    "{} · {}",
+                    item[key].as_str().unwrap_or("?"),
+                    item[count_key].as_u64().unwrap_or(0)
+                )
+            })
+            .collect();
+        if !lines.is_empty() {
+            sections.push(format!("{title}\n{}", lines.join("\n")));
+        }
+    }
+    sections.join("\n\n")
+}
+
 fn format_resource(resource: &str, value: &Value) -> String {
     let mut lines = Vec::new();
     match resource {
@@ -2037,6 +2157,27 @@ pub fn main() {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn insights_use_billed_cost_and_show_gateway_breakdowns() {
+        let report = serde_json::json!({
+            "period_days": 7,
+            "totals": {"total_sessions": 2, "total_api_calls": 3, "total_input": 200,
+                "total_output": 100, "total_cache_read": 100, "total_estimated_cost": 1.5,
+                "total_actual_cost": 0.75},
+            "daily": [{"day":"2026-11-01","input_tokens":200,"output_tokens":100,
+                "estimated_cost":1.5,"actual_cost":0.75}],
+            "by_model": [{"model":"test/model","input_tokens":200,"output_tokens":100,"api_calls":3}],
+            "tools": [{"tool":"search","count":2}],
+            "skills": {"top_skills":[{"skill":"planning","total_count":1}]}
+        });
+        let text = super::format_insights(&report);
+        assert!(text.contains("$0.7500 billed"));
+        assert!(text.contains("33% of prompt"));
+        assert!(text.contains("2026-11-01 · 300 tokens"));
+        assert!(text.contains("test/model · 300 tokens · 3 calls"));
+        assert!(text.contains("search · 2"));
+        assert!(text.contains("planning · 1"));
+    }
     use super::{
         history_reasoning, history_text, log_confirms_room_send, parse_bot_rows,
         parse_desktop_rooms, parse_hosted_rooms, parse_room_events, prepare_room_send, short_text,

@@ -254,6 +254,19 @@ impl GatewayClient {
         Ok(checked(response).await?.json().await?)
     }
 
+    /// The same usage report used by Kyllene's Insights page.
+    pub async fn usage(&self, days: u16, profile: Option<&str>) -> Result<Value, GoblinError> {
+        let mut request = self
+            .http
+            .get(self.url.resolve("api/analytics/usage")?)
+            .query(&[("days", days.clamp(1, 365))]);
+        if let Some(profile) = profile {
+            request = request.query(&[("profile", profile)]);
+        }
+        let response = request.send().await?;
+        Ok(checked(response).await?.json().await?)
+    }
+
     pub async fn messages(
         &self,
         session_id: &str,
