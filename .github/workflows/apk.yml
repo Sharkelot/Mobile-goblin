@@ -6,7 +6,11 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
+
+concurrency:
+  group: mobile-goblin-apk
+  cancel-in-progress: true
 
 jobs:
   apk:
@@ -14,6 +18,14 @@ jobs:
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
+      - name: Restore persistent Android signing key
+        env:
+          MOBILE_GOBLIN_KEYSTORE_BASE64: ${{ secrets.MOBILE_GOBLIN_KEYSTORE_BASE64 }}
+        run: |
+          test -n "$MOBILE_GOBLIN_KEYSTORE_BASE64"
+          mkdir -p "$HOME/.android"
+          printf '%s' "$MOBILE_GOBLIN_KEYSTORE_BASE64" | base64 --decode > "$HOME/.android/debug.keystore"
+          chmod 600 "$HOME/.android/debug.keystore"
       - name: Install Rust Android target
         run: rustup target add aarch64-linux-android
       - name: Install Android SDK packages
@@ -36,3 +48,17 @@ jobs:
           name: mobile-goblin-rust-apk
           path: rust/target/**/*.apk
           if-no-files-found: error
+      - name: Publish direct APK download
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          apk_path="$(find rust/target -type f -name '*.apk' -print -quit)"
+          test -n "$apk_path"
+          cp "$apk_path" "$RUNNER_TEMP/Mobile-Goblin.apk"
+          gh release create "build-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+            "$RUNNER_TEMP/Mobile-Goblin.apk" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "Mobile Goblin Android build ${GITHUB_RUN_NUMBER}" \
+            --notes "Download Mobile-Goblin.apk on your Android phone and open it to install. Android 8.0 or newer is required. This is a debug-signed development build." \
+            --latest

@@ -5,6 +5,8 @@
 
   **Your Hermes Agent, from your phone.**
 
+  <a href="https://github.com/Sharkelot/Mobile-goblin/releases/latest/download/Mobile-Goblin.apk"><img src="https://img.shields.io/badge/Download-Android%20APK-c6ff6c?style=for-the-badge&logo=android&logoColor=17221a" alt="Download Mobile Goblin Android APK"></a>
+
   [![Android APK build](https://github.com/Sharkelot/Mobile-goblin/actions/workflows/apk.yml/badge.svg)](https://github.com/Sharkelot/Mobile-goblin/actions/workflows/apk.yml)
   [![Android 8.0+](https://img.shields.io/badge/Android-8.0%2B-3DDC84?logo=android&logoColor=white)](MOBILE_GOBLIN.md)
   [![License: MIT](https://img.shields.io/badge/license-MIT-33B86B)](LICENSE)
@@ -13,9 +15,11 @@
 
 Mobile Goblin is a native Android companion for a running [Hermes Agent](https://github.com/NousResearch/hermes-agent) dashboard. It connects to the same gateway you use on your desktop, so your chats, sessions and approvals follow you to your phone. It has its own package name (`com.sharkelot.mobilegoblin`) and installs beside Kyllene.
 
-## Get the Rust APK
+## Install on Android
 
-Open the [Rust Android APK workflow](https://github.com/Sharkelot/Mobile-goblin/actions/workflows/apk.yml), choose the latest successful run, and download **mobile-goblin-rust-apk**. Unzip and install the APK on Android 8.0 or newer. The new Rust build uses the same package name as the Kotlin build; Android may require you to uninstall the Kotlin APK first because their debug signing keys differ.
+On your phone, tap **[Download Mobile Goblin APK](https://github.com/Sharkelot/Mobile-goblin/releases/latest/download/Mobile-Goblin.apk)**, then open the downloaded file and tap **Install**. If Android asks, allow your browser to install apps from this source. Android 8.0 or newer is required. The APK downloads directly; no GitHub sign-in or ZIP extraction is needed.
+
+If you have the earlier Kotlin APK or a Rust APK from before the persistent signing key, uninstall it once before installing this build. Later builds use the same key and should install as updates.
 
 Enter the URL of your running Hermes dashboard, plus your username and password when the gateway requires them. The phone needs a route to the gateway through your LAN, Tailscale, or HTTPS. Public HTTP sign-in is blocked.
 
@@ -25,7 +29,7 @@ The replacement uses a native Rust UI and Rust Hermes protocol client. It suppor
 
 The Rust APK does **not** yet support voice, phone tools, Wear, file attachments, or offline storage. Those Kotlin-era features remain in the repository as reference code but are no longer built into the APK. The Rust app does not save credentials locally; enter them again after restarting.
 
-The GitHub Actions APK is debug signed. Different build runs may use different signing keys, so upgrading may require an uninstall. Chats live on the Hermes gateway, but local app state is lost on uninstall.
+The GitHub release APK is debug signed with a persistent key. Chats live on the Hermes gateway. Uninstalling the app clears its local state.
 
 ## Privacy
 
@@ -51,7 +55,7 @@ cargo test -p goblin-core
 cargo apk2 build -p mobile-goblin --target aarch64-linux-android --lib
 ```
 
-The APK is produced under `rust/target/aarch64-linux-android/debug/apk/`. GitHub Actions runs the same build on every push to `main`.
+The APK is produced under `rust/target/aarch64-linux-android/debug/apk/`. GitHub Actions runs the same build on every push to `main` and publishes a direct APK link on the latest release.
 
 ## Migration evidence
 
