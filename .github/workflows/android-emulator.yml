@@ -71,5 +71,6 @@ jobs:
           name: mobile-goblin-emulator-smoke
           path: |
             ${{ runner.temp }}/mobile-goblin-launch.png
+            ${{ runner.temp }}/mobile-goblin-password-focus.png
             ${{ runner.temp }}/mobile-goblin-logcat.txt
           if-no-files-found: warn
