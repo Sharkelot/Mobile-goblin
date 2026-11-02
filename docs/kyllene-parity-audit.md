@@ -24,7 +24,7 @@ The largest missing blocks are:
 
 1. **Conversation UI:** message, reasoning, notice, and basic tool rows are now separate; rich expandable tool cards, markdown, media, attachments, voice, find-in-chat, and deep history paging remain.
 2. **Android runtime:** foreground chat and voice services, notifications/actions, phone tools, Wear, assist, and background recovery.
-3. **App data and navigation:** the Rust bot roster can open existing canonical chats; multiple gateways, bot creation and editing, rooms, inbox, settings, offline cache, and secure credential persistence remain.
+3. **App data and navigation:** the Rust bot roster can open existing canonical chats, and its room view reads hosted logs and Desktop mirrors; multiple gateways, bot creation and editing, hosted room participation, inbox, settings, offline cache, and secure credential persistence remain.
 
 Do not label a raw gateway RPC button as feature parity for a missing Android integration. Restore each block with an actual screen, gateway behavior, Android lifecycle handling, and device test before marking it complete.
 

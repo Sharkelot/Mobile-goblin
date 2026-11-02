@@ -38,6 +38,12 @@ enum Command {
         name: String,
         session_id: String,
     },
+    RefreshRooms,
+    OpenRoom {
+        id: String,
+        kind: String,
+    },
+    RefreshRoom,
     SelectProfile(String),
     RefreshModels,
     SelectModel {
@@ -176,6 +182,21 @@ fn start() -> Result<(), slint::PlatformError> {
             name: name.to_string(),
             session_id: session_id.to_string(),
         });
+    });
+    let sender = commands.clone();
+    ui.on_refresh_rooms(move || {
+        let _ = sender.send(Command::RefreshRooms);
+    });
+    let sender = commands.clone();
+    ui.on_open_room(move |id, kind| {
+        let _ = sender.send(Command::OpenRoom {
+            id: id.to_string(),
+            kind: kind.to_string(),
+        });
+    });
+    let sender = commands.clone();
+    ui.on_refresh_room(move || {
+        let _ = sender.send(Command::RefreshRoom);
     });
     let sender = commands.clone();
     ui.on_select_profile(move |profile| {
@@ -373,6 +394,17 @@ async fn run_connection(
     let mut model_options_id: Option<String> = None;
     let mut profiles_id: Option<String> = None;
     let mut roster_id: Option<String> = None;
+    let mut room_capabilities_id: Option<String> = None;
+    let mut room_list_id: Option<String> = None;
+    let mut room_mirror_id: Option<String> = None;
+    let mut room_log_id: Option<String> = None;
+    let mut hosted_rooms: Vec<RoomRow> = Vec::new();
+    let mut desktop_rooms: Vec<RoomRow> = Vec::new();
+    let mut desktop_lines: HashMap<String, Vec<ChatRow>> = HashMap::new();
+    let mut room_members: HashMap<String, HashMap<String, String>> = HashMap::new();
+    let mut open_room: Option<(String, String)> = None;
+    let mut room_events: Vec<(i64, ChatRow)> = Vec::new();
+    let mut room_cursor: i64 = 0;
     let mut model_set_id: Option<String> = None;
     let mut resource_requests: HashMap<String, String> = HashMap::new();
     let mut job_mutation_ids: HashSet<String> = HashSet::new();
@@ -592,6 +624,44 @@ async fn run_connection(
                 Some(Command::RefreshBots) => {
                     roster_id = Some(send_rpc(&mut sink, &mut next_id, "profiles.list", json!({})).await?);
                     status("Loading bots…");
+                }
+                Some(Command::RefreshRooms) => {
+                    room_capabilities_id = Some(send_rpc(&mut sink, &mut next_id, "groups.capabilities", json!({})).await?);
+                    room_mirror_id = Some(send_rpc(&mut sink, &mut next_id, "profiles.list", json!({})).await?);
+                    status("Loading rooms…");
+                }
+                Some(Command::OpenRoom { id, kind }) => {
+                    let room = if kind == "hosted" { &hosted_rooms } else { &desktop_rooms }
+                        .iter().find(|room| room.id.as_str() == id).cloned();
+                    let Some(room) = room else { status("Room is no longer available. Refresh rooms."); continue; };
+                    open_room = Some((id.clone(), kind.clone()));
+                    on_ui(move |ui| {
+                        ui.set_open_room_id(id.into());
+                        ui.set_open_room_kind(kind.into());
+                        ui.set_open_room_name(room.name);
+                    });
+                    if let Some((room_id, kind)) = &open_room {
+                        if kind == "desktop" {
+                            let lines = desktop_lines.get(room_id).cloned().unwrap_or_default();
+                            present_room_lines(lines);
+                            status("Desktop room mirror");
+                        } else {
+                            room_events.clear();
+                            room_cursor = (hosted_rooms.iter().find(|room| room.id.as_str() == room_id).map(|room| room.latest_seq).unwrap_or(0) as i64 - 100).max(0);
+                            present_room_lines(Vec::new());
+                            room_log_id = Some(send_rpc(&mut sink, &mut next_id, "groups.log", json!({"room_id":room_id,"since_seq":room_cursor,"limit":100})).await?);
+                            status("Loading hosted room…");
+                        }
+                    }
+                }
+                Some(Command::RefreshRoom) => {
+                    if let Some((room_id, kind)) = &open_room {
+                        if kind == "hosted" {
+                            room_log_id = Some(send_rpc(&mut sink, &mut next_id, "groups.log", json!({"room_id":room_id,"since_seq":room_cursor,"limit":100})).await?);
+                        } else {
+                            room_mirror_id = Some(send_rpc(&mut sink, &mut next_id, "profiles.list", json!({})).await?);
+                        }
+                    }
                 }
                 Some(Command::SelectProfile(profile)) => {
                     client_state.selected_profile = if profile == "default" { None } else { Some(profile.clone()) };
@@ -933,6 +1003,63 @@ async fn run_connection(
                                         status(format!("{count} bot{}", if count == 1 { "" } else { "s" }));
                                         continue;
                                     }
+                                    if room_capabilities_id.as_deref() == Some(&response_id) {
+                                        room_capabilities_id = None;
+                                        if value.get("driver").and_then(Value::as_bool) == Some(true) {
+                                            room_list_id = Some(send_rpc(&mut sink, &mut next_id, "groups.list", json!({})).await?);
+                                        } else {
+                                            hosted_rooms.clear();
+                                            present_rooms(&hosted_rooms, &desktop_rooms);
+                                        }
+                                        continue;
+                                    }
+                                    if room_list_id.as_deref() == Some(&response_id) {
+                                        room_list_id = None;
+                                        let (rooms, members) = parse_hosted_rooms(&value);
+                                        hosted_rooms = rooms;
+                                        room_members = members;
+                                        present_rooms(&hosted_rooms, &desktop_rooms);
+                                        status("Rooms ready");
+                                        continue;
+                                    }
+                                    if room_mirror_id.as_deref() == Some(&response_id) {
+                                        room_mirror_id = None;
+                                        let (rooms, lines) = parse_desktop_rooms(&value);
+                                        desktop_rooms = rooms;
+                                        desktop_lines = lines;
+                                        present_rooms(&hosted_rooms, &desktop_rooms);
+                                        if let Some((id, kind)) = &open_room {
+                                            if kind == "desktop" {
+                                                present_room_lines(desktop_lines.get(id).cloned().unwrap_or_default());
+                                            }
+                                        }
+                                        continue;
+                                    }
+                                    if room_log_id.as_deref() == Some(&response_id) {
+                                        room_log_id = None;
+                                        if let Some((id, kind)) = &open_room {
+                                            if kind == "hosted" {
+                                                let members = room_members.get(id);
+                                                let incoming = parse_room_events(&value, members);
+                                                for (seq, line) in incoming {
+                                                    if !room_events.iter().any(|(existing, _)| *existing == seq) {
+                                                        room_events.push((seq, line));
+                                                    }
+                                                }
+                                                room_events.sort_by_key(|(seq, _)| *seq);
+                                                present_room_lines(room_events.iter().map(|(_, line)| line.clone()).collect());
+                                                let next_cursor = value.get("cursor").and_then(Value::as_i64).unwrap_or(room_cursor);
+                                                let advanced = next_cursor > room_cursor;
+                                                room_cursor = room_cursor.max(next_cursor);
+                                                if advanced && value.get("has_more").and_then(Value::as_bool) == Some(true) {
+                                                    room_log_id = Some(send_rpc(&mut sink, &mut next_id, "groups.log", json!({"room_id":id,"since_seq":room_cursor,"limit":100})).await?);
+                                                } else {
+                                                    status("Room up to date");
+                                                }
+                                            }
+                                        }
+                                        continue;
+                                    }
                                     if model_options_id.as_deref() == Some(&response_id) {
                                         let mut rows = Vec::new();
                                         for provider in value.get("providers").and_then(Value::as_array).into_iter().flatten() {
@@ -1200,6 +1327,238 @@ fn parse_bot_rows(value: &Value) -> Vec<BotRow> {
             .then_with(|| left.3.cmp(&right.3))
     });
     rows.into_iter().map(|(_, _, _, _, row)| row).collect()
+}
+
+fn present_rooms(hosted: &[RoomRow], desktop: &[RoomRow]) {
+    let rows = hosted.iter().chain(desktop).cloned().collect::<Vec<_>>();
+    on_ui(move |ui| ui.set_rooms(slint::ModelRc::new(slint::VecModel::from(rows))));
+}
+
+fn present_room_lines(lines: Vec<ChatRow>) {
+    on_ui(move |ui| ui.set_room_lines(slint::ModelRc::new(slint::VecModel::from(lines))));
+}
+
+fn parse_hosted_rooms(value: &Value) -> (Vec<RoomRow>, HashMap<String, HashMap<String, String>>) {
+    let mut members = HashMap::new();
+    let mut rooms = Vec::new();
+    for room in value
+        .get("rooms")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
+        if room
+            .get("disbanded_at")
+            .is_some_and(|value| !value.is_null())
+        {
+            continue;
+        }
+        let (Some(id), Some(name)) = (
+            room.get("room_id").and_then(Value::as_str),
+            room.get("name").and_then(Value::as_str),
+        ) else {
+            continue;
+        };
+        let mut room_members = HashMap::new();
+        for member in room
+            .get("members")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            if let Some(member_id) = member.get("member_id").and_then(Value::as_str) {
+                let label = member
+                    .get("display_name")
+                    .or_else(|| member.get("profile"))
+                    .or_else(|| member.get("handle"))
+                    .and_then(Value::as_str)
+                    .unwrap_or(member_id);
+                room_members.insert(member_id.to_owned(), label.to_owned());
+            }
+        }
+        members.insert(id.to_owned(), room_members);
+        rooms.push(RoomRow {
+            id: id.into(),
+            name: name.into(),
+            kind: "hosted".into(),
+            preview: "".into(),
+            latest_seq: room
+                .get("latest_seq")
+                .and_then(Value::as_i64)
+                .unwrap_or(0)
+                .clamp(0, i32::MAX as i64) as i32,
+        });
+    }
+    (rooms, members)
+}
+
+fn parse_desktop_rooms(value: &Value) -> (Vec<RoomRow>, HashMap<String, Vec<ChatRow>>) {
+    let mirror = value
+        .get("profiles")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .find(|profile| {
+            profile.get("is_default").and_then(Value::as_bool) == Some(true)
+                || profile.get("name").and_then(Value::as_str) == Some("default")
+        })
+        .and_then(|profile| profile.pointer("/ui_meta/hermes-bots-groups"));
+    let Some(room_objects) = mirror
+        .and_then(|mirror| mirror.get("rooms"))
+        .and_then(Value::as_object)
+    else {
+        return (Vec::new(), HashMap::new());
+    };
+    let deleted = mirror.and_then(|mirror| mirror.get("deleted"));
+    let mut rows = Vec::new();
+    let mut lines_by_room = HashMap::new();
+    for (key, room) in room_objects {
+        let revision = room.get("revision").and_then(Value::as_i64).unwrap_or(0);
+        if let Some(tombstone) = deleted
+            .and_then(|deleted| deleted.get(key))
+            .and_then(Value::as_f64)
+        {
+            if key.starts_with("id:") || revision as f64 <= tombstone {
+                continue;
+            }
+        }
+        let name = room
+            .get("name")
+            .and_then(Value::as_str)
+            .filter(|name| !name.is_empty())
+            .unwrap_or_else(|| key.split_once(':').map(|(_, name)| name).unwrap_or(key));
+        let mut lines = Vec::new();
+        let mut updated = 0.0_f64;
+        for line in room
+            .get("log")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            let Some(text) = line.get("text").and_then(Value::as_str) else {
+                continue;
+            };
+            let Some(from) = line.get("from") else {
+                continue;
+            };
+            let user = from.get("kind").and_then(Value::as_str) == Some("user");
+            let speaker = from.get("name").and_then(Value::as_str).unwrap_or(if user {
+                "You"
+            } else {
+                "A member"
+            });
+            updated = updated.max(line.get("at").and_then(Value::as_f64).unwrap_or(0.0));
+            lines.push(chat_row(
+                if user { "user" } else { "assistant" },
+                speaker,
+                text,
+            ));
+        }
+        let preview = lines
+            .last()
+            .map(|line| short_text(line.body.as_str(), 80))
+            .unwrap_or_default();
+        if let Some(omitted) = room
+            .get("omitted")
+            .and_then(Value::as_i64)
+            .filter(|count| *count > 0)
+        {
+            lines.insert(
+                0,
+                chat_row(
+                    "notice",
+                    "Earlier messages",
+                    format!("{omitted} earlier lines are available on Desktop"),
+                ),
+            );
+        }
+        rows.push((
+            updated,
+            RoomRow {
+                id: key.as_str().into(),
+                name: name.into(),
+                kind: "desktop".into(),
+                preview: preview.into(),
+                latest_seq: 0,
+            },
+        ));
+        lines_by_room.insert(key.clone(), lines);
+    }
+    rows.sort_by(|left, right| {
+        right
+            .0
+            .total_cmp(&left.0)
+            .then_with(|| left.1.name.cmp(&right.1.name))
+    });
+    (
+        rows.into_iter().map(|(_, row)| row).collect(),
+        lines_by_room,
+    )
+}
+
+fn parse_room_events(
+    value: &Value,
+    members: Option<&HashMap<String, String>>,
+) -> Vec<(i64, ChatRow)> {
+    let mut lines = Vec::new();
+    for event in value
+        .get("events")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
+        let (Some(seq), Some(kind)) = (
+            event.get("seq").and_then(Value::as_i64),
+            event.get("kind").and_then(Value::as_str),
+        ) else {
+            continue;
+        };
+        let payload = event.get("payload");
+        let member_id = payload
+            .and_then(|payload| payload.get("member_id"))
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        let member = members
+            .and_then(|members| members.get(member_id))
+            .map(String::as_str)
+            .unwrap_or("A member");
+        let row = match kind {
+            "message.user" => payload
+                .and_then(|payload| payload.get("text"))
+                .and_then(Value::as_str)
+                .map(|text| chat_row("user", "You", text)),
+            "message.member" => payload
+                .and_then(|payload| payload.get("text"))
+                .and_then(Value::as_str)
+                .map(|text| chat_row("assistant", member, text)),
+            "turn.failed" => Some(chat_row(
+                "notice",
+                member,
+                format!(
+                    "Couldn't take a turn: {}",
+                    payload
+                        .and_then(|payload| payload.get("error"))
+                        .and_then(Value::as_str)
+                        .unwrap_or("something went wrong")
+                ),
+            )),
+            "turn.cancelled" => Some(chat_row("notice", "Room", "Turn stopped")),
+            "room.stop_requested" => Some(chat_row(
+                "notice",
+                "Room",
+                "Stopping the room was requested",
+            )),
+            "room.renamed" => payload
+                .and_then(|payload| payload.get("name"))
+                .and_then(Value::as_str)
+                .map(|name| chat_row("notice", "Room", format!("Renamed to {name}"))),
+            _ => None,
+        };
+        if let Some(row) = row {
+            lines.push((seq, row));
+        }
+    }
+    lines
 }
 
 fn present_sessions(page: &Value, field: &str) -> usize {
@@ -1499,7 +1858,10 @@ pub fn main() {
 
 #[cfg(test)]
 mod tests {
-    use super::{history_reasoning, history_text, parse_bot_rows, short_text, tool_summary};
+    use super::{
+        history_reasoning, history_text, parse_bot_rows, parse_desktop_rooms, parse_hosted_rooms,
+        parse_room_events, short_text, tool_summary,
+    };
     use serde_json::json;
 
     #[test]
@@ -1553,5 +1915,42 @@ mod tests {
         assert_eq!(rows[0].preview.as_str(), "Hello");
         assert_eq!(rows[1].session_id.as_str(), "");
         assert_eq!(rows[2].name.as_str(), "quiet");
+    }
+
+    #[test]
+    fn hosted_rooms_keep_member_labels_and_skip_disbanded_rooms() {
+        let reply = json!({"rooms":[
+            {"room_id":"r1","name":"Design","latest_seq":7,"members":[{"member_id":"m1","profile":"artist","display_name":"Painter"}]},
+            {"room_id":"r2","name":"Gone","disbanded_at":123}
+        ]});
+        let (rooms, members) = parse_hosted_rooms(&reply);
+        assert_eq!(rooms.len(), 1);
+        assert_eq!(rooms[0].name.as_str(), "Design");
+        assert_eq!(rooms[0].latest_seq, 7);
+        let log = json!({"events":[
+            {"seq":1,"kind":"turn.started","payload":{}},
+            {"seq":2,"kind":"message.member","payload":{"member_id":"m1","text":"Done"}},
+            {"seq":3,"kind":"turn.failed","payload":{"member_id":"m1","error":"timeout"}}
+        ]});
+        let lines = parse_room_events(&log, members.get("r1"));
+        assert_eq!(lines.len(), 2);
+        assert_eq!(lines[0].1.label.as_str(), "Painter");
+        assert_eq!(lines[1].0, 3);
+    }
+
+    #[test]
+    fn desktop_room_mirror_honors_tombstones_and_omitted_lines() {
+        let reply = json!({"profiles":[{"name":"default","ui_meta":{"hermes-bots-groups":{
+            "rooms":{
+                "id:old":{"name":"Old","revision":4,"log":[]},
+                "name:reused":{"name":"Reused","revision":5,"omitted":2,"log":[{"text":"Hi","from":{"kind":"user","name":"You"},"at":100}]}
+            },
+            "deleted":{"id:old":9,"name:reused":4}
+        }}}]});
+        let (rooms, lines) = parse_desktop_rooms(&reply);
+        assert_eq!(rooms.len(), 1);
+        assert_eq!(rooms[0].name.as_str(), "Reused");
+        assert_eq!(lines["name:reused"].len(), 2);
+        assert_eq!(lines["name:reused"][1].body.as_str(), "Hi");
     }
 }
