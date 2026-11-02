@@ -2,7 +2,7 @@
 set -euo pipefail
 trap 'adb logcat -d -t 2000 > "$RUNNER_TEMP/mobile-goblin-logcat.txt" || true; adb exec-out screencap -p > "$RUNNER_TEMP/mobile-goblin-launch.png" || true' EXIT
 
-apk_path="$(find rust/target -type f -name '*.apk' -print -quit)"
+apk_path="$RUNNER_TEMP/Mobile-Goblin-emulator.apk"
 test -s "$apk_path"
 adb install -r "$apk_path"
 adb shell pm path com.sharkelot.mobilegoblin
