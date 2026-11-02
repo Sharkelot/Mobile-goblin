@@ -1,0 +1,70 @@
+name: Android emulator smoke test
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/android-emulator.yml'
+      - 'rust/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  launch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Enable KVM for the Android emulator
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Install Rust Android target
+        run: rustup target add x86_64-linux-android
+      - name: Install Android NDK and platform
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.0" "ndk;27.2.12479018"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.2.12479018" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_ROOT=$ANDROID_HOME/ndk/27.2.12479018" >> "$GITHUB_ENV"
+      - name: Install Rust APK packager
+        run: cargo install cargo-apk2 --version 1.4.2 --locked
+      - name: Build x86_64 emulator APK
+        run: cargo apk2 build -p mobile-goblin --target x86_64-linux-android --lib
+        working-directory: rust
+      - name: Install and launch on Android 35
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          profile: pixel_6
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: |
+            set -euo pipefail
+            apk_path="$(find rust/target -type f -name '*.apk' -print -quit)"
+            test -s "$apk_path"
+            adb install -r "$apk_path"
+            adb shell pm path com.sharkelot.mobilegoblin
+            adb logcat -c
+            adb shell am start -W -n com.sharkelot.mobilegoblin/android.app.NativeActivity
+            sleep 8
+            adb shell pidof com.sharkelot.mobilegoblin
+            adb exec-out screencap -p > "$RUNNER_TEMP/mobile-goblin-launch.png"
+            test -s "$RUNNER_TEMP/mobile-goblin-launch.png"
+            adb logcat -d -t 2000 > "$RUNNER_TEMP/mobile-goblin-logcat.txt"
+            if rg 'FATAL EXCEPTION|Fatal signal' "$RUNNER_TEMP/mobile-goblin-logcat.txt"; then
+              exit 1
+            fi
+      - name: Save emulator screenshot and logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mobile-goblin-emulator-smoke
+          path: |
+            ${{ runner.temp }}/mobile-goblin-launch.png
+            ${{ runner.temp }}/mobile-goblin-logcat.txt
+          if-no-files-found: warn
