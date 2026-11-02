@@ -15,9 +15,10 @@ test -s "$RUNNER_TEMP/mobile-goblin-launch.png"
 screen_size="$(adb shell wm size | sed -n 's/.*Physical size: \([0-9]*\)x\([0-9]*\).*/\1 \2/p')"
 read -r screen_width screen_height <<< "$screen_size"
 test -n "$screen_width"
-# The password field is at roughly 47% of the initial Pixel 6 screen height.
-# The old 69% tap landed outside the form and did not test password focus.
-adb shell input tap "$((screen_width / 2))" "$((screen_height * 47 / 100))"
+# Focus Username, then use its Enter action to move to Password. Tapping
+# Password directly is unreliable while Android is resizing for the keyboard.
+adb shell input tap "$((screen_width / 2))" "$((screen_height * 37 / 100))"
+adb shell input keyevent 66
 sleep 2
 adb exec-out screencap -p > "$RUNNER_TEMP/mobile-goblin-password-focus.png"
 test -s "$RUNNER_TEMP/mobile-goblin-password-focus.png"
