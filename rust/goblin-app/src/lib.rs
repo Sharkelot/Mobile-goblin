@@ -7,7 +7,7 @@ use http::header::SEC_WEBSOCKET_PROTOCOL;
 use serde_json::{Value, json};
 use slint::ComponentHandle;
 use std::cell::RefCell;
-use std::collections::{HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use tokio::sync::mpsc;
 use tokio_tungstenite::{
     connect_async,
@@ -40,6 +40,16 @@ enum Command {
     SetEffort(String),
     SetFast(bool),
     Steer(String),
+    LoadResource(String),
+    ManageJob {
+        action: String,
+        name: String,
+        schedule: String,
+        prompt: String,
+    },
+    TitleChat(String),
+    ArchiveChat,
+    BranchChat(String),
 }
 
 thread_local! {
@@ -147,6 +157,31 @@ fn start() -> Result<(), slint::PlatformError> {
     let sender = commands.clone();
     ui.on_steer(move |text| {
         let _ = sender.send(Command::Steer(text.to_string()));
+    });
+    let sender = commands.clone();
+    ui.on_load_resource(move |resource| {
+        let _ = sender.send(Command::LoadResource(resource.to_string()));
+    });
+    let sender = commands.clone();
+    ui.on_manage_job(move |action, name, schedule, prompt| {
+        let _ = sender.send(Command::ManageJob {
+            action: action.to_string(),
+            name: name.to_string(),
+            schedule: schedule.to_string(),
+            prompt: prompt.to_string(),
+        });
+    });
+    let sender = commands.clone();
+    ui.on_title_chat(move |title| {
+        let _ = sender.send(Command::TitleChat(title.to_string()));
+    });
+    let sender = commands.clone();
+    ui.on_archive_chat(move || {
+        let _ = sender.send(Command::ArchiveChat);
+    });
+    let sender = commands.clone();
+    ui.on_branch_chat(move |name| {
+        let _ = sender.send(Command::BranchChat(name.to_string()));
     });
     ui.on_send_message(move |message| {
         let _ = commands.send(Command::Send(message.to_string()));
@@ -270,6 +305,11 @@ async fn run_connection(
     let mut model_options_id: Option<String> = None;
     let mut profiles_id: Option<String> = None;
     let mut model_set_id: Option<String> = None;
+    let mut resource_requests: HashMap<String, String> = HashMap::new();
+    let mut job_mutation_ids: HashSet<String> = HashSet::new();
+    let mut branch_id: Option<String> = None;
+    let mut archive_id: Option<String> = None;
+    let mut title_id: Option<String> = None;
     let mut model_candidate: Option<(String, String)> = None;
     let mut confirm_candidate: Option<(String, String)> = None;
     let mut heartbeat = tokio::time::interval(std::time::Duration::from_secs(15));
@@ -481,6 +521,45 @@ async fn run_connection(
                         status("Steering Hermes…");
                     }
                 }
+                Some(Command::LoadResource(resource)) => {
+                    let (method, params) = match resource.as_str() {
+                        "jobs" => ("cron.manage", json!({"action":"list","include_disabled":true,"profile":client_state.selected_profile})),
+                        "skills" => ("skills.manage", json!({"action":"list","profile":client_state.selected_profile})),
+                        "tools" => ("tools.list", json!({"session_id":session_id})),
+                        "mcp" => ("mcp.servers.list", json!({"profile":client_state.selected_profile})),
+                        _ => continue,
+                    };
+                    let id = send_rpc(&mut sink, &mut next_id, method, params).await?;
+                    resource_requests.insert(id, resource.clone());
+                    on_ui(move |ui| ui.set_resource_content("Loading…".into()));
+                }
+                Some(Command::ManageJob { action, name, schedule, prompt }) => {
+                    if !matches!(action.as_str(), "add"|"pause"|"resume"|"remove") { continue; }
+                    if name.trim().is_empty() || (action == "add" && (schedule.trim().is_empty() || prompt.trim().is_empty())) {
+                        status("Enter a job name, plus schedule and prompt when adding.");
+                        continue;
+                    }
+                    let id = send_rpc(&mut sink, &mut next_id, "cron.manage", json!({"action":action,"name":name.trim(),"schedule":schedule.trim(),"prompt":prompt.trim(),"profile":client_state.selected_profile})).await?;
+                    job_mutation_ids.insert(id);
+                    status("Updating job…");
+                }
+                Some(Command::TitleChat(title)) => {
+                    if title.trim().is_empty() { status("Enter a chat title first"); continue; }
+                    if let Some(id) = &session_id {
+                        title_id = Some(send_rpc(&mut sink, &mut next_id, "session.title", json!({"session_id":id,"profile":client_state.session_profile,"title":title.trim()})).await?);
+                    }
+                }
+                Some(Command::ArchiveChat) => {
+                    if let Some(id) = &session_id {
+                        archive_id = Some(send_rpc(&mut sink, &mut next_id, "session.archive", json!({"session_id":id,"profile":client_state.session_profile,"archived":true})).await?);
+                    }
+                }
+                Some(Command::BranchChat(name)) => {
+                    if let Some(id) = &session_id {
+                        branch_id = Some(send_rpc(&mut sink, &mut next_id, "session.branch", json!({"session_id":id,"profile":client_state.session_profile,"name":if name.trim().is_empty() { None } else { Some(name.trim()) }})).await?);
+                        status("Creating branch…");
+                    }
+                }
                 Some(Command::Connect { .. }) => status("Already connected"),
                 None => return Ok(()),
             },
@@ -537,6 +616,41 @@ async fn run_connection(
                             Ok(RpcFrame::Response { id: response_id, result }) => match result {
                                 Ok(value) => {
                                     pending_prompts.remove(&response_id);
+                                    if let Some(resource) = resource_requests.remove(&response_id) {
+                                        let content = format_resource(&resource, &value);
+                                        on_ui(move |ui| ui.set_resource_content(content.into()));
+                                        continue;
+                                    }
+                                    if job_mutation_ids.remove(&response_id) {
+                                        if let Some(error) = value.get("error").and_then(Value::as_str) {
+                                            status(format!("Job update failed: {error}"));
+                                        } else {
+                                            status("Job updated");
+                                            let id = send_rpc(&mut sink, &mut next_id, "cron.manage", json!({"action":"list","include_disabled":true,"profile":client_state.selected_profile})).await?;
+                                            resource_requests.insert(id, "jobs".to_owned());
+                                        }
+                                        continue;
+                                    }
+                                    if title_id.as_deref() == Some(&response_id) { title_id = None; status("Chat renamed"); continue; }
+                                    if archive_id.as_deref() == Some(&response_id) {
+                                        archive_id = None;
+                                        session_id = None;
+                                        *restore_id = None;
+                                        conversation.clear();
+                                        transcript("");
+                                        on_ui(|ui| ui.set_session_id("".into()));
+                                        status("Chat archived");
+                                        continue;
+                                    }
+                                    if branch_id.as_deref() == Some(&response_id) {
+                                        branch_id = None;
+                                        if let Some(id) = value.get("stored_session_id").and_then(Value::as_str) {
+                                            *restore_id = Some(id.to_owned());
+                                            attach_id = Some(send_rpc(&mut sink, &mut next_id, "session.resume", json!({"session_id":id,"profile":client_state.session_profile,"source":"mobile-goblin","cols":80,"omit_messages":true})).await?);
+                                        }
+                                        status("Branch created");
+                                        continue;
+                                    }
                                     if profiles_id.as_deref() == Some(&response_id) {
                                         let rows: Vec<(String, String)> = value.get("profiles").and_then(Value::as_array)
                                             .into_iter().flatten().filter_map(|item| {
@@ -609,6 +723,8 @@ async fn run_connection(
                                     }
                                 }
                                 Err(fault) => {
+                                    resource_requests.remove(&response_id);
+                                    job_mutation_ids.remove(&response_id);
                                     if attach_id.as_deref() == Some(&response_id) {
                                         attach_id = None;
                                         pending_send.clear();
@@ -659,6 +775,107 @@ struct ClientState {
 struct PendingInput {
     request: HumanRequest,
     answers: Vec<String>,
+}
+
+fn format_resource(resource: &str, value: &Value) -> String {
+    let mut lines = Vec::new();
+    match resource {
+        "jobs" => {
+            for job in value
+                .get("jobs")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+            {
+                let name = job.get("name").and_then(Value::as_str).unwrap_or("Unnamed");
+                let schedule = job.get("schedule").and_then(Value::as_str).unwrap_or("?");
+                let state = if job.get("enabled").and_then(Value::as_bool) == Some(false) {
+                    "paused"
+                } else {
+                    "enabled"
+                };
+                let preview = job
+                    .get("prompt_preview")
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
+                let next = job.get("next_run_at").and_then(Value::as_str).unwrap_or("");
+                lines.push(format!(
+                    "{name} · {state}\n{schedule}\n{preview}\nNext: {next}"
+                ));
+            }
+        }
+        "skills" => {
+            if let Some(categories) = value.get("skills").and_then(Value::as_object) {
+                let mut keys: Vec<_> = categories.keys().collect();
+                keys.sort();
+                for key in keys {
+                    let names = categories[key]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .filter_map(Value::as_str)
+                        .collect::<Vec<_>>();
+                    lines.push(format!("{}\n{}", key, names.join(", ")));
+                }
+            }
+        }
+        "tools" => {
+            for toolset in value
+                .get("toolsets")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+            {
+                let name = toolset
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .unwrap_or("Toolset");
+                let count = toolset
+                    .get("tool_count")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(0);
+                let state = if toolset.get("enabled").and_then(Value::as_bool) == Some(true) {
+                    "on"
+                } else {
+                    "off"
+                };
+                let description = toolset
+                    .get("description")
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
+                lines.push(format!("{name} · {count} tools · {state}\n{description}"));
+            }
+        }
+        "mcp" => {
+            for server in value
+                .get("servers")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+            {
+                let name = server
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .unwrap_or("Server");
+                let transport = server
+                    .get("transport")
+                    .and_then(Value::as_str)
+                    .unwrap_or("?");
+                let state = if server.get("enabled").and_then(Value::as_bool) == Some(true) {
+                    "on"
+                } else {
+                    "off"
+                };
+                lines.push(format!("{name} · {transport} · {state}"));
+            }
+        }
+        _ => {}
+    }
+    if lines.is_empty() {
+        "No items found".to_owned()
+    } else {
+        lines.join("\n\n")
+    }
 }
 
 fn render_pending(input: Option<&PendingInput>) {

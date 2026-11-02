@@ -27,6 +27,8 @@ export component MainWindow inherits Window {
     in-out property <bool> show-settings: false;
     in-out property <string> selected-effort: "Profile default";
     in-out property <bool> fast: false;
+    in-out property <string> resource-view: "";
+    in-out property <string> resource-content: "";
     in-out property <bool> input-pending: false;
     in-out property <bool> input-approval: false;
     in-out property <bool> input-masked: false;
@@ -50,6 +52,11 @@ export component MainWindow inherits Window {
     callback set-effort(string);
     callback set-fast(bool);
     callback steer(string);
+    callback load-resource(string);
+    callback manage-job(string, string, string, string);
+    callback title-chat(string);
+    callback archive-chat();
+    callback branch-chat(string);
 
     VerticalBox {
         x: root.safe-area-insets.left + 14px;
@@ -123,6 +130,36 @@ export component MainWindow inherits Window {
                 Button { text: "Models"; clicked => { root.show-models = !root.show-models; root.show-profiles = false; if (root.show-models) { root.refresh-models(); } } }
             }
             Text { text: "Model: " + root.selected-model; color: #a5bbb0; font-size: 12px; }
+            HorizontalBox {
+                Button { text: "Jobs"; clicked => { root.resource-view = "jobs"; root.load-resource("jobs"); } }
+                Button { text: "Skills"; clicked => { root.resource-view = "skills"; root.load-resource("skills"); } }
+                Button { text: "Tools"; clicked => { root.resource-view = "tools"; root.load-resource("tools"); } }
+                Button { text: "MCP"; clicked => { root.resource-view = "mcp"; root.load-resource("mcp"); } }
+            }
+            if root.resource-view != "" : VerticalBox {
+                height: 300px;
+                spacing: 5px;
+                HorizontalBox {
+                    Text { text: root.resource-view; color: #c6ff6c; font-size: 17px; }
+                    Button { text: "Refresh"; clicked => { root.load-resource(root.resource-view); } }
+                    Button { text: "Close"; clicked => { root.resource-view = ""; } }
+                }
+                if root.resource-view == "jobs" : VerticalBox {
+                    job-name := LineEdit { placeholder-text: "Job name"; }
+                    job-schedule := LineEdit { placeholder-text: "Schedule (e.g. 0 9 * * *)"; }
+                    job-prompt := LineEdit { placeholder-text: "Prompt for Hermes"; }
+                    HorizontalBox {
+                        Button { text: "Add job"; clicked => { root.manage-job("add", job-name.text, job-schedule.text, job-prompt.text); } }
+                        Button { text: "Pause"; clicked => { root.manage-job("pause", job-name.text, "", ""); } }
+                        Button { text: "Resume"; clicked => { root.manage-job("resume", job-name.text, "", ""); } }
+                        Button { text: "Remove"; clicked => { root.manage-job("remove", job-name.text, "", ""); } }
+                    }
+                }
+                ScrollView {
+                    vertical-stretch: 1;
+                    Text { text: root.resource-content; color: #ebf9f0; wrap: word-wrap; font-size: 13px; width: parent.width - 22px; }
+                }
+            }
             Button { text: root.show-settings ? "Hide controls" : "Reasoning & speed"; clicked => { root.show-settings = !root.show-settings; } }
             if root.show-settings : VerticalBox {
                 Text { text: "Reasoning: " + root.selected-effort; color: #d6e9df; font-size: 12px; }
@@ -153,6 +190,14 @@ export component MainWindow inherits Window {
                 for session in root.sessions: Button {
                     text: session.title;
                     clicked => { root.open-session(session.id); root.show-sessions = false; }
+                }
+            }
+            if root.session-id != "" : VerticalBox {
+                chat-title := LineEdit { placeholder-text: "Chat title or branch name"; }
+                HorizontalBox {
+                    Button { text: "Rename"; clicked => { root.title-chat(chat-title.text); } }
+                    Button { text: "Branch"; clicked => { root.branch-chat(chat-title.text); } }
+                    Button { text: "Archive"; clicked => { root.archive-chat(); } }
                 }
             }
             ScrollView {

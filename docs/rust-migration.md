@@ -14,4 +14,4 @@
 
 ## Remaining parity work
 
-Attachments, voice, phone tools, Wear, offline persistence, full settings and tool surfaces, and persistent release signing remain to be ported. The Kotlin implementation remains in-tree as reference material. A successful Rust build does not establish end-to-end Hermes compatibility until tested against a live gateway and on Android hardware.
+Attachments, voice, phone tools, Wear, offline persistence, full settings and tool management surfaces, and persistent release signing remain to be ported. The Kotlin implementation remains in-tree as reference material. A successful Rust build does not establish end-to-end Hermes compatibility until tested against a live gateway and on Android hardware.

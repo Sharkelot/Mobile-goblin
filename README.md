@@ -21,7 +21,7 @@ Enter the URL of your running Hermes dashboard, plus your username and password 
 
 ## Current Rust build
 
-The replacement uses a native Rust UI and Rust Hermes protocol client. It supports dashboard sign-in, live chat, recent sessions, profile and model selection, reasoning and fast-tier controls, stop and steer, agent approvals and questions, masked secret prompts, and automatic reconnect. It includes the goblin artwork in the interface and launcher.
+The replacement uses a native Rust UI and Rust Hermes protocol client. It supports dashboard sign-in, live chat, recent sessions, chat rename/archive/branch, profile and model selection, reasoning and fast-tier controls, stop and steer, agent approvals and questions, masked secret prompts, automatic reconnect, cron job management, and views of installed skills, toolsets, and MCP servers. It includes the goblin artwork in the interface and launcher.
 
 The Rust APK does **not** yet support voice, phone tools, Wear, file attachments, or offline storage. Those Kotlin-era features remain in the repository as reference code but are no longer built into the APK. The Rust app does not save credentials locally; enter them again after restarting.
 
